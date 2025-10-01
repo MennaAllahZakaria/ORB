@@ -22,6 +22,10 @@ const verificationSchema = new mongoose.Schema({
     tempUserData: {
         type: Object, // هنستخدمه بس لو type = emailVerification
     },
+    verified: {
+        type: Boolean,
+        default: false,
+    },
     }, {
     timestamps: true,
 });
