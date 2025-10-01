@@ -9,7 +9,7 @@ const createToken = require("../utils/createToken"); // JWT
 
 // ==================== SIGNUP ====================
 exports.signup = asyncHandler(async (req, res, next) => {
-    const email = req.body.Email.toLowerCase();
+    const email = req.body.email;
 
     // لو فيه كود قديم لنفس الإيميل → نحذفه
     await Verification.deleteMany({ email, type: "emailVerification" });

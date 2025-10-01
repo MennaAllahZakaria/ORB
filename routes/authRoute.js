@@ -36,7 +36,7 @@ router.post("/login",loginValidator, login);
 router.post("/forgetPassword",forgetPasswordValidator, forgetPassword);
 
 // 📌 Verify reset code
-router.post("/verifyForgotPasswordCode",verifyEmailValidator, verifyForgotPasswordCode);
+router.post("/verifyForgotPasswordCode",verifyResetCodeValidator, verifyForgotPasswordCode);
 
 // 📌 Reset password
 router.post("/resetPassword",resetPasswordValidator, resetPassword);
