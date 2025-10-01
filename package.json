@@ -7,11 +7,13 @@
     "dev": "nodemon server.js",
     "start:prod": "NODE_ENV=production node index.js",
     "build": "echo 'No build step required for Node.js backend.'",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
     "cloudinary": "^2.7.0",
     "compression": "^1.8.1",
