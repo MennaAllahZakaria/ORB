@@ -64,9 +64,9 @@ exports.getAllAdmins = HandlerFactory.getAll(User, "admin");
 
 // ==================== ADMIN - GET SPECIFIC ADMIN ====================
 exports.getAdmin = asyncHandler(async (req, res, next) => {
-    const { adminId } = req.params;
+    const { id } = req.params;
 
-    const admin = await User.findOne({ _id: adminId, role: "admin" });
+    const admin = await User.findOne({ _id: id, role: "admin" });
     if (!admin) {
         return next(new ApiError("Admin not found", 404));
     }
@@ -80,19 +80,19 @@ exports.getAdmin = asyncHandler(async (req, res, next) => {
 // ==================== ADMIN - DELETE ADMIN ====================
 exports.deleteAdmin = asyncHandler(async (req, res, next) => {
 
-    const { adminId } = req.params;
+    const { id } = req.params;
 
     // ✅ admin cannot delete themselves
-    if (req.user._id.toString() === adminId) {
+    if (req.user._id.toString() === id) {
         return next(new ApiError("You cannot delete your own admin account", 400));
     }
 
-    const admin = await User.findOne({ _id: adminId, role: "admin" });
+    const admin = await User.findOne({ _id: id, role: "admin" });
     if (!admin) {
         return next(new ApiError("Admin not found", 404));
     }
 
-    await User.deleteOne({ _id: adminId });
+    await User.deleteOne({ _id: id });
 
     res.status(200).json({
         status: "success",
@@ -102,7 +102,7 @@ exports.deleteAdmin = asyncHandler(async (req, res, next) => {
 
 // ==================== ADMIN - UPDATE ADMIN ====================
 exports.updateAdmin = asyncHandler(async (req, res, next) => {
-    const { adminId } = req.params;
+    const { id } = req.params;
     const updates = req.body;
 
     // Prevent role change
@@ -111,7 +111,7 @@ exports.updateAdmin = asyncHandler(async (req, res, next) => {
     }
 
     const admin = await User.findOneAndUpdate(
-        { _id: adminId, role: "admin" },
+        { _id: id, role: "admin" },
         updates,
         { new: true }
     );
@@ -131,7 +131,7 @@ exports.updateAdmin = asyncHandler(async (req, res, next) => {
 exports.getUser = HandlerFactory.getOne(User);
 exports.deleteUser = HandlerFactory.deleteOne(User);
 exports.updateStatusUser = asyncHandler(async (req, res, next) => {
-    const { userId } = req.params;
+    const { id } = req.params;
     const { status } = req.body;
 
     if (!["active", "inactive", "banned"].includes(status)) {
@@ -139,7 +139,7 @@ exports.updateStatusUser = asyncHandler(async (req, res, next) => {
     }
 
     const user = await User.findByIdAndUpdate(
-        userId,
+        id,
         { status },
         { new: true }
     );
@@ -174,11 +174,11 @@ exports.getAllPendingTeachers = asyncHandler(async (req, res, next) => {
 });
 
 exports.verifiTeacher = asyncHandler(async (req, res, next) => {
-    const { teacherId } = req.params;
+    const { id } = req.params;
     const updates = { "teacherProfile.verificationStatus": "approved" };
 
     const teacher = await User.findOneAndUpdate(
-        { _id: teacherId, role: "teacher" },
+        { _id: id, role: "teacher" },
         updates,
         { new: true }
     );
@@ -212,11 +212,11 @@ exports.verifiTeacher = asyncHandler(async (req, res, next) => {
 });
 
 exports.rejectTeacher = asyncHandler(async (req, res, next) => {
-    const { teacherId } = req.params;
+    const { id } = req.params;
     const updates = { "teacherProfile.verificationStatus": "rejected" };
 
     const teacher = await User.findOneAndUpdate(
-        { _id: teacherId, role: "teacher" },
+        { _id: id, role: "teacher" },
         updates,
         { new: true }
     );

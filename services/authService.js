@@ -149,7 +149,7 @@ exports.login = asyncHandler(async (req, res, next) => {
 
 // ==================== FORGET PASSWORD ====================
 exports.forgetPassword = asyncHandler(async (req, res, next) => {
-    const email = req.body.Email.toLowerCase();
+    const email = req.body.email;
 
     // clear any previous reset requests
     await Verification.deleteMany({ email, type: "passwordReset" });
@@ -205,7 +205,6 @@ exports.verifyForgotPasswordCode = asyncHandler(async (req, res, next) => {
     const isMatch = await bcrypt.compare(code, verification.code);
     if (!isMatch) return next(new ApiError("Invalid reset code", 400));
 
-    // Mark as verified (لو عايزة تخليها مرحلة وسيطة قبل reset)
     verification.verified = true;
     await verification.save();
 
@@ -218,27 +217,29 @@ exports.verifyForgotPasswordCode = asyncHandler(async (req, res, next) => {
 
 // ==================== RESET PASSWORD ====================
 exports.resetPassword = asyncHandler(async (req, res, next) => {
-    const { email, code, newPassword } = req.body;
+const { email, newPassword } = req.body;
 
-    const verification = await Verification.findOne({ email, type: "passwordReset" });
-    if (!verification) return next(new ApiError("No reset request found", 400));
+    // العثور على سجل إعادة تعيين كلمة المرور
+    const verification = await Verification.findOne({ 
+        email, 
+        type: "passwordReset",
+        verified: true  
+    });
+
+    if (!verification) return next(new ApiError("No verified reset request found", 400));
 
     if (verification.expiresAt < Date.now()) {
         await Verification.deleteOne({ _id: verification._id });
-        return next(new ApiError("Code expired", 400));
+        return next(new ApiError("Reset request expired", 400));
     }
 
-    const isMatch = await bcrypt.compare(code, verification.code);
-    if (!isMatch) return next(new ApiError("Invalid reset code", 400));
-
-    const user = await User.findOne({ Email: email });
+    const user = await User.findOne({ email });
     if (!user) return next(new ApiError("User not found", 404));
 
     user.password = await bcrypt.hash(newPassword, 12);
-    user.passwordChangeAt = Date.now();
+    user.passwordChangedAt = Date.now();
     await user.save();
 
-    // Delete verification record after success
     await Verification.deleteOne({ _id: verification._id });
 
     const token = createToken(user._id);
