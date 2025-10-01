@@ -95,6 +95,9 @@ exports.forgetPasswordValidator = [
 
 // 🔹 Verify Password Reset Code Validator
 exports.verifyResetCodeValidator = [
+    check("email")
+        .notEmpty().withMessage("Email is required")
+        .isEmail().withMessage("Invalid email"),
     check("code")
         .notEmpty().withMessage("Reset code is required")
         .isLength({ min: 6, max: 6 }).withMessage("Code must be 6 digits"),
