@@ -12,7 +12,7 @@ exports.signup = asyncHandler(async (req, res, next) => {
     const email = req.body.email;
 
     // لو فيه كود قديم لنفس الإيميل → نحذفه
-    await Verification.deleteOne({ email, type: "emailVerification" });
+    await Verification.deleteMany({ email, type: "emailVerification" });
 
     // كود 6 أرقام
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();

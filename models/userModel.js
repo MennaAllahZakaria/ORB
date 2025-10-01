@@ -94,5 +94,15 @@ userSchema.set("toJSON", {
     },
 });
 
+userSchema.pre("save", function(next) {
+    if (this.role !== "teacher") {
+        this.teacherProfile = undefined;
+    }
+    if (this.role !== "student") {
+        this.studentProfile = undefined;
+    }
+    next();
+});
+
 const User = mongoose.model("User", userSchema);
 module.exports = User;
