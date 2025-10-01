@@ -9,8 +9,20 @@ const createToken = require("../utils/createToken"); // JWT
 
 // ==================== SIGNUP ====================
 exports.signup = asyncHandler(async (req, res, next) => {
-    const email = req.body.email;
+    if (req.body.role==="admin"){
+        return next(new ApiError("You cannot register as admin", 400));
+    }
+    if (req.body.role === "teacher" && req.files?.certificate) {
+        req.body.teacherProfile.certificate = req.files.certificate[0].path;
+    }
 
+    if (req.files?.imageProfile) {
+        req.body.imageProfile = req.files.imageProfile[0].path;
+    }
+
+
+        const email = req.body.email;
+    
     // لو فيه كود قديم لنفس الإيميل → نحذفه
     await Verification.deleteMany({ email, type: "emailVerification" });
 
@@ -79,6 +91,30 @@ exports.verifyEmailUser = asyncHandler(async (req, res, next) => {
 
     await Verification.deleteOne({ _id: verification._id });
 
+    if (user.role === "teacher") {
+        user.teacherProfile.approvalStatus = "pending";
+        try{
+            const message = `
+            Hi ${user.firstName} ${user.lastName},
+            Your account has been created and is pending approval. You will be notified once it is reviewed.
+            `;
+            await sendEmail({
+                Email: user.email,
+                subject: "Account Created - Pending Approval",
+                message,
+            });
+
+        } catch(err){
+            return next(new ApiError("Error sending email", 500));
+        }
+        await user.save();
+
+        return res.status(201).json({
+            status: "success",
+            message: "Email verified successfully. Your account is pending approval.",
+        });
+    }
+
     const token = createToken(user._id);
 
     res.status(201).json({
@@ -91,9 +127,13 @@ exports.verifyEmailUser = asyncHandler(async (req, res, next) => {
 
 // ==================== LOGIN ====================
 exports.login = asyncHandler(async (req, res, next) => {
-    const { Email, password } = req.body;
-    const user = await User.findOne({ Email });
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
     if (!user) return next(new ApiError("Incorrect email or password", 401));
+
+    if (user.role === "teacher" && user.teacherProfile.verificationStatus !== "approved") {
+        return next(new ApiError("Your account is not approved yet", 403));
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return next(new ApiError("Incorrect email or password", 401));

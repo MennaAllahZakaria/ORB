@@ -47,10 +47,6 @@ exports.signupValidator = [
         .notEmpty()
         .withMessage("Subjects are required for teacher"),
 
-    check("teacherProfile.certificate")
-        .if(check("role").equals("teacher"))
-        .notEmpty()
-        .withMessage("Certificate is required for teacher"),
 
     // 📌 only for student
     check("studentProfile.grade")

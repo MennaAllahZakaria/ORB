@@ -36,21 +36,36 @@ const userSchema = new mongoose.Schema({
     },
 
     // 📌 only for teachers
-    teacherProfile: {
-        subjects: [String],
-        experienceYears: Number,
-        bio: String,
-        pricePerHour: Number,
+teacherProfile: {
+    type: {
+        subjects: {
+            type: [String],
+            required: function() { return this.role === "teacher"; },
+        },
+        experienceYears: {
+            type: Number,
+            required: function() { return this.role === "teacher"; },
+        },
+        bio: {
+            type: String,
+            required: function() { return this.role === "teacher"; },
+        },
+        pricePerHour: {
+            type: Number,
+            required: function() { return this.role === "teacher"; },
+        },
         certificate: {
-        type: String,
-        required: function() { return this.role === "teacher"; }
+            type: String,
         },
         verificationStatus: {
-        type: String,
-        enum: ["pending", "approved", "rejected"],
-        default: "pending"
+            type: String,
+            enum: ["pending", "approved", "rejected"],
+            default: "pending"
         }
     },
+    required: function() { return this.role === "teacher"; } 
+},
+
 
     // 📌 only for students
     studentProfile: {
