@@ -12,15 +12,14 @@ exports.signup = asyncHandler(async (req, res, next) => {
     if (req.body.role==="admin"){
         return next(new ApiError("You cannot register as admin", 400));
     }
+    req.body.teacherProfile = {};
+    req.body.imageProfile="";
     if (req.body.role === "teacher" && req.files?.certificate) {
-        req.body.teacherProfile.certificate = req.files.certificate[0].path;
+        req.body.teacherProfile.certificate = req.certificateUrl;
     }
-
     if (req.files?.imageProfile) {
-        req.body.imageProfile = req.files.imageProfile[0].path;
+        req.body.imageProfile = req.imageProfileUrl;
     }
-
-
         const email = req.body.email;
     
     // لو فيه كود قديم لنفس الإيميل → نحذفه

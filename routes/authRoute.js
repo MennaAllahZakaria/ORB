@@ -17,13 +17,13 @@ const {
     resetPasswordValidator,
 } = require("../utils/validators/authValidator");
 
-const { uploadFiles } = require("../middleware/uploadFileMiddleware");
+const {uploadImageAndFile, attachUploadedLinks} = require("../middleware/uploadFileMiddleware");
 const router = express.Router();
 
 // ================= AUTH =================
 
 // 📌 Signup (send verification email)
-router.post("/signup" ,uploadFiles, signupValidator, signup);
+router.post("/signup" ,uploadImageAndFile,attachUploadedLinks, signupValidator, signup);
 
 // 📌 Verify email (create account after code)
 router.post("/verifyEmailUser", verifyEmailValidator, verifyEmailUser);
