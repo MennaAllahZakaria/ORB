@@ -60,7 +60,16 @@ exports.createAdmin = async (req, res, next) => {
 };
 
 // ==================== ADMIN - GET ALL ADMINS ====================
-exports.getAllAdmins = HandlerFactory.getAll(User, "admin");
+exports.getAllAdmins = asyncHandler(async (req, res, next) => {
+    const admins = await User.find({ role: "admin" }).select(
+        "firstName lastName email phone createdAt imageProfile "
+    );  
+    res.status(200).json({
+        status: "success",
+        results: admins.length,
+        data: admins,
+    });
+});
 
 // ==================== ADMIN - GET SPECIFIC ADMIN ====================
 exports.getAdmin = asyncHandler(async (req, res, next) => {
@@ -260,6 +269,14 @@ exports.rejectTeacher = asyncHandler(async (req, res, next) => {
 });
 
 // ==================== ADMIN - STUDENT MANAGEMENT ====================
-exports.getAllStudents = HandlerFactory.getAll(User, "student");
+exports.getAllStudents = asyncHandler(async (req, res, next) => {
+    const students = await User.find({ role: "student" })
+                               .select("firstName lastName email phone studentProfile imageProfile");   
+    res.status(200).json({
+        status: "success",
+        results: students.length,
+        data: students,
+    });
+});
 exports.getStudent = HandlerFactory.getOne(User);
 exports.deleteStudent = HandlerFactory.deleteOne(User);
