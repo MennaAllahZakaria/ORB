@@ -35,6 +35,17 @@ const userSchema = new mongoose.Schema({
         default: "student"
     },
 
+    fcmToken: {
+        type: String,
+        default: null,
+    },
+
+    preferredLang: {
+        type: String,
+        enum: ["en", "ar"],
+        default: "en"
+    },
+
     // 📌 only for teachers
 teacherProfile: {
     type: {

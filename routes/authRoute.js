@@ -6,6 +6,7 @@ const {
     forgetPassword,
     verifyForgotPasswordCode,
     resetPassword,
+    updateFcmToken
 } = require("../services/authService");
 
 const {
@@ -16,6 +17,9 @@ const {
     verifyResetCodeValidator,
     resetPasswordValidator,
 } = require("../utils/validators/authValidator");
+
+const { protect, allowedTo } = require("../middleware/authMiddleware");
+
 
 const {uploadImageAndFile, attachUploadedLinks} = require("../middleware/uploadFileMiddleware");
 const router = express.Router();
@@ -41,5 +45,9 @@ router.post("/verifyForgotPasswordCode",verifyResetCodeValidator, verifyForgotPa
 
 // 📌 Reset password
 router.post("/resetPassword",resetPasswordValidator, resetPassword);
+// ================= UPDATE FCM TOKEN =================
+
+router.post("/updateFcmToken",protect, updateFcmToken);
+
 
 module.exports = router;

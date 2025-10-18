@@ -1,5 +1,7 @@
 const authRoutes = require("./authRoute");
 const adminRoutes = require("./adminRoute");
+const lessonRoutes = require("./lessonRoute");
+
 const mountRoutes = (app) => {
     app.use((req, res, next) => {
         const origin = req.headers.origin;
@@ -28,6 +30,7 @@ const mountRoutes = (app) => {
 //=============================
 app.use("/auth", authRoutes);
 app.use("/admin", adminRoutes);
+app.use("/lessons", lessonRoutes);
 
 //=============================
 // 404 Handler

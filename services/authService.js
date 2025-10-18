@@ -6,6 +6,7 @@ const Verification = require("../models/verificationModel");
 const sendEmail = require("../utils/sendEmail"); 
 const ApiError = require("../utils/apiError");
 const createToken = require("../utils/createToken"); // JWT
+const { encryptToken, decryptToken } = require("../utils/fcmToken");
 
 // ==================== SIGNUP ====================
 exports.signup = asyncHandler(async (req, res, next) => {
@@ -251,3 +252,34 @@ const { email, newPassword } = req.body;
     });
 });
 
+// ---------------------------------notifications --------------------------------
+function isValidFcmToken(token) {
+  const fcmTokenRegex = /^[a-zA-Z0-9-_:.]{100,}/;
+  return fcmTokenRegex.test(token);
+}
+
+// @desc    Update FCM token
+// @route   PUT /users/updateFcmToken
+// @access  Private/user
+
+exports.updateFcmToken = asyncHandler(async (req, res, next) => {
+  const { fcmToken } = req.body;
+
+  // Check if FCM Token is provided and valid
+  if (!fcmToken || !isValidFcmToken(fcmToken)) {
+    return next(new ApiError("FCM token is invalid", 400));
+  }
+
+  // Update FCM Token
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    { fcmToken: encryptToken(fcmToken) },
+    { new: true }
+  );
+
+  if (!user) {
+    return next(new ApiError("User not found", 404));
+  }
+
+  res.status(200).json({ message: "FCM Token updated successfully." });
+});
