@@ -6,13 +6,14 @@ const User = require("../models/userModel");
 // ================== PROTECT ==================
 exports.protect = asyncHandler(async (req, res, next) => {
     let token;
+    console.log(req.headers);
 
-    // token من Authorization header
-    if (
-        req.headers.authorization &&
-        req.headers.authorization.startsWith("Bearer")
-    ) {
-        token = req.headers.authorization.split(" ")[1];
+    if (req.headers.authorization) {
+        if (req.headers.authorization.startsWith("Bearer ")) {
+            token = req.headers.authorization.split(" ")[1];
+        } else {
+            token = req.headers.authorization;
+        }
     }
 
     if (!token) {
@@ -20,15 +21,13 @@ exports.protect = asyncHandler(async (req, res, next) => {
     }
 
     // verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET_KEY);
 
-    // check user exists
     const currentUser = await User.findById(decoded.userId);
     if (!currentUser) {
         return next(new ApiError("The user belonging to this token no longer exists.", 401));
     }
 
-    // attach user to request
     req.user = currentUser;
     next();
 });

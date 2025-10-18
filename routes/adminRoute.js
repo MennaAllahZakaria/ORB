@@ -12,7 +12,7 @@ const {
     getTeacher,
     deleteTeacher,
     getAllPendingTeachers,
-    verifiTeacher,
+    verifyTeacher,
     rejectTeacher,
     getAllStudents,
     getStudent,
@@ -54,7 +54,7 @@ router.put("/users/:id/status", updateUserStatusValidator, updateStatusUser);
 
 //=======================Teacher Management=========================
 // 📌 Get all teachers
-router.get("/teachers", getAllTeachers);
+router.get("/teachers/all", getAllTeachers);
 // 📌 Get specific teacher by id
 router.get("/teachers/:id", idValidator, getTeacher);
 // 📌 Delete teacher
@@ -62,9 +62,9 @@ router.delete("/teachers/:id", idValidator, deleteTeacher);
 // 📌 Get all pending teachers
 router.get("/teachers/pending", getAllPendingTeachers);
 // 📌 Verify teacher
-router.put("/teachers/:id/verify", idValidator, verifiTeacher);
+router.put("/teachers/verify/:id", idValidator, verifyTeacher);
 // 📌 Reject teacher
-router.put("/teachers/:id/reject", idValidator, rejectTeacher);
+router.put("/teachers/reject/:id", idValidator, rejectTeacher);
 
 //=======================Student Management=========================
 // 📌 Get all students

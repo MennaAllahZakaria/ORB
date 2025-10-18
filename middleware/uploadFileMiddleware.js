@@ -69,9 +69,6 @@ exports.attachUploadedLinks = (req, res, next) => {
       req.certificateUrl = req.files.certificate[0].path;
     }
 
-    if (!req.imageProfileUrl && !req.certificateUrl) {
-      return next(new ApiError("No files uploaded", 400));
-    }
 
     next();
   } catch (err) {

@@ -14,6 +14,7 @@ exports.signup = asyncHandler(async (req, res, next) => {
     }
     req.body.teacherProfile = {};
     req.body.imageProfile="";
+    
     if (req.body.role === "teacher" && req.files?.certificate) {
         req.body.teacherProfile.certificate = req.certificateUrl;
     }

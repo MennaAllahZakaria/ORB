@@ -157,7 +157,15 @@ exports.updateStatusUser = asyncHandler(async (req, res, next) => {
 
 //=======================Teacher Management=========================
 
-exports.getAllTeachers = HandlerFactory.getAll(User, "teacher");
+exports.getAllTeachers = asyncHandler(async (req, res, next) => {
+    const teachers = await User.find({ role: "teacher" })
+                               .select("firstName lastName email phone teacherProfile imageProfile");
+    res.status(200).json({
+        status: "success",
+        results: teachers.length,
+        data: teachers,
+    });
+});
 
 exports.getTeacher = HandlerFactory.getOne(User);
 
@@ -173,7 +181,7 @@ exports.getAllPendingTeachers = asyncHandler(async (req, res, next) => {
     });
 });
 
-exports.verifiTeacher = asyncHandler(async (req, res, next) => {
+exports.verifyTeacher = asyncHandler(async (req, res, next) => {
     const { id } = req.params;
     const updates = { "teacherProfile.verificationStatus": "approved" };
 
