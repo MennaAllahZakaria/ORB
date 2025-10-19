@@ -92,6 +92,25 @@ const lessonSchema = new mongoose.Schema(
       type: String,
       default: null, // ID for payout transaction (when released)
     },
+         // 🎥 ZegoCloud (Online Meeting)
+    meetingRoomId: {
+      type: String,
+      default: null, // Unique room ID from ZegoCloud
+    },
+    meetingStatus: {
+      type: String,
+      enum: ["upcoming", "ongoing", "finished", "canceled"],
+      default: "upcoming",
+    },
+    meetingStartTime: {
+      type: Date,
+      default: null,
+    },
+    meetingEndTime: {
+      type: Date,
+      default: null,
+    },
+    zegoToken: String,
 
     createdAt: {
       type: Date,
@@ -100,5 +119,14 @@ const lessonSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+lessonSchema.virtual("durationMinutes").get(function () {
+  if (this.meetingStartTime && this.meetingEndTime) {
+    const diff = (this.meetingEndTime - this.meetingStartTime) / 1000 / 60;
+    return Math.round(diff);
+  }
+  return 0;
+});
+
 
 module.exports = mongoose.model("Lesson", lessonSchema);

@@ -4,79 +4,83 @@ const User = require("../models/userModel");
 const Lesson = require("../models/lessonModel");
 const Notification = require("../models/notificationModel");
 const { decryptToken } = require("../utils/fcmToken");
+const { v4: uuidv4 } = require("uuid");
+const { generateZegoToken } = require("../utils/zego");
 const admin = require("../fireBase/admin");
 
 // ==================== STUDENT - CREATE LESSON REQUEST ====================
 exports.createLessonRequest = asyncHandler(async (req, res, next) => {
-    req.body.student = req.user._id;
+  req.body.student = req.user._id;
 
-    const lesson = await Lesson.create(req.body);
+  // ZegoCloud for meeting setup
+  req.body.meetingStatus = "upcoming";
+  req.body.meetingRoomId = null;
+  req.body.zegoToken = null;
 
-    // Get all teachers who teach this subject
-const teachers = await User.find({
-                                    role: "teacher",
-                                    "teacherProfile.subjects": req.body.subject
-                                    });
+  const lesson = await Lesson.create(req.body);
 
-    for (const teacher of teachers) {
-        if (!teacher.fcmToken) continue;
+  // 🔎 Get all teachers who teach this subject
+  const teachers = await User.find({
+    role: "teacher",
+    "teacherProfile.subjects": req.body.subject,
+  });
 
-        const token = decryptToken(teacher.fcmToken);
-        if (!token) continue;
+  // 🔔 Send notifications to all relevant teachers
+  for (const teacher of teachers) {
+    if (!teacher.fcmToken) continue;
 
-        const formattedDate = new Date(lesson.requistedDate).toLocaleString("en-US", {
-            weekday: "short",
-            day: "numeric",
-            month: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-        });
+    const token = decryptToken(teacher.fcmToken);
+    if (!token) continue;
 
-        // ===== 🈳 تحديد اللغة =====
-        const isArabic = teacher.preferredLang === "ar";
-
-        const title = isArabic
-            ? "🎓 طلب درس جديد!"
-            : "🎓 New Lesson Request!";
-
-        const body = isArabic
-            ? `📚 المادة: ${lesson.subject}\n💰 السعر: $${lesson.price}\n🕒 التاريخ: ${formattedDate}\n👤 من: ${req.user.name || "طالب"}\n\nاضغط لعرض التفاصيل.`
-            : `📚 Subject: ${lesson.subject}\n💰 Price: $${lesson.price}\n🕒 Date: ${formattedDate}\n👤 From: ${req.user.name || "A student"}\n\nTap to view details.`;
-
-        const message = {
-            notification: {
-                title,
-                body,
-            },
-            token,
-            data: {
-                type: "lesson_request",
-                lessonId: lesson._id.toString(),
-                preferredLang: teacher.preferredLang || "en",
-            },
-        };
-
-        try {
-            const response = await admin.messaging().send(message);
-            console.log("Notification sent:", response);
-
-            // Save to DB
-            await Notification.create({
-                sendBy: req.user._id,
-                recipient: teacher._id,
-                title,
-                message: body.replace(/\n/g, " "),
-            });
-
-        } catch (error) {
-            console.error("Error sending notification:", error);
-        }
-    }
-
-    res.status(201).json({
-        status: "success",
-        data: lesson,
+    const formattedDate = new Date(lesson.requestedDate).toLocaleString("en-US", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
     });
+
+    // 🈳 Language detection
+    const isArabic = teacher.preferredLang === "ar";
+
+    const title = isArabic
+      ? "🎓 طلب درس جديد!"
+      : "🎓 New Lesson Request!";
+
+    const body = isArabic
+      ? `📚 المادة: ${lesson.subject}\n💰 السعر: $${lesson.price}\n🕒 التاريخ: ${formattedDate}\n👤 من: ${req.user.name || "طالب"}\n\nاضغط لعرض التفاصيل.`
+      : `📚 Subject: ${lesson.subject}\n💰 Price: $${lesson.price}\n🕒 Date: ${formattedDate}\n👤 From: ${req.user.name || "A student"}\n\nTap to view details.`;
+
+    const message = {
+      notification: { title, body },
+      token,
+      data: {
+        type: "lesson_request",
+        lessonId: lesson._id.toString(),
+        preferredLang: teacher.preferredLang || "en",
+      },
+    };
+
+    try {
+      const response = await admin.messaging().send(message);
+      console.log("Notification sent:", response);
+
+      // 💾 Save notification to DB
+      await Notification.create({
+        sendBy: req.user._id,
+        recipient: teacher._id,
+        title,
+        message: body.replace(/\n/g, " "),
+      });
+    } catch (error) {
+      console.error("Error sending notification:", error);
+    }
+  }
+
+  res.status(201).json({
+    status: "success",
+    data: lesson,
+  });
 });
 
 
@@ -182,42 +186,58 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
   if (lesson.status !== "pending")
     return next(new ApiError("Cannot choose a teacher for this lesson at its current status", 400));
 
-  // تأكد أن المدرس كان من المهتمين
   if (!lesson.interestedTeachers.includes(teacherId))
     return next(new ApiError("This teacher did not express interest", 400));
 
+  // ✅ accept the teacher
   lesson.acceptedTeacher = teacherId;
   lesson.status = "approved";
+
+  // 🎥 ZegoCloud init room
+  const meetingRoomId = `lesson_${uuidv4()}`;
+
+  // 💬 generate tokens
+  const teacherToken = generateZegoToken( teacherId, meetingRoomId);
+  const studentToken = generateZegoToken( req.user._id.toString(), meetingRoomId);
+
+  lesson.meetingRoomId = meetingRoomId;
+  lesson.zegoToken = null; // Tokens are generated per user
+  lesson.meetingStatus = "upcoming";
+
   await lesson.save();
 
+  // 📩 notification details
   const teacher = await User.findById(teacherId);
   const student = await User.findById(lesson.student);
-  const lang = teacher?.preferredLang || "ar"; // اللغة المفضلة للمدرس
+  const lang = teacher?.preferredLang || "ar";
 
-  // 🎯 النوتيفيكيشن بالعربية والإنجليزية
   const titles = {
-    ar: "🎉 تهانينا! تم اختيارك لتدريس الحصة 🎓",
-    en: "🎉 Congratulations! You've been selected to teach the lesson 🎓"
+    ar: "🎉 تم اختيارك لتدريس الدرس عبر ZegoCloud 🎥",
+    en: "🎉 You've been selected to teach this lesson on ZegoCloud 🎥",
   };
 
   const bodies = {
-    ar: `👩‍🎓 الطالب ${student.firstName} ${student.lastName} اختارك لتدريس مادة ${lesson.subject}. 
-📅 استعد للتنسيق معه لإتمام تفاصيل الحصة.`,
-    en: `👩‍🎓 The student ${student.firstName} ${student.lastName} has selected you to teach ${lesson.subject}. 
-📅 Get ready to coordinate lesson details soon.`
-  };
+                  ar: `👩‍🎓 الطالب ${student.firstName} ${student.lastName} اختارك لتدريس مادة ${lesson.subject}.
+              📅 يمكنك الآن بدء الجلسة في وقتها المحدد.`,
+                  en: `👩‍🎓 The student ${student.firstName} ${student.lastName} selected you to teach ${lesson.subject}.
+              📅 You can start the session at the scheduled time.`,
+                };
 
   const title = titles[lang];
   const body = bodies[lang];
 
-  // 🔔 إرسال الإشعار عبر FCM
+  // 🔔 send notification
   if (teacher?.fcmToken) {
     const token = decryptToken(teacher.fcmToken);
     if (token) {
       await admin.messaging().send({
         notification: { title, body },
         token,
-        data: { type: "lesson_approved", lessonId: lesson._id.toString() },
+        data: {
+          type: "lesson_approved",
+          lessonId: lesson._id.toString(),
+          meetingRoomId,
+        },
       });
     }
   }
@@ -231,11 +251,17 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
   });
 
   res.status(200).json({
-    message: lang === "ar" ? "تم اختيار المدرس بنجاح." : "Teacher selected successfully.",
-    data: lesson,
+    message: lang === "ar" ? "تم اختيار المدرس وإنشاء الغرفة بنجاح." : "Teacher selected and room created successfully.",
+    data: {
+      lesson,
+      meetingRoomId,
+      tokens: {
+        student: studentToken,
+        teacher: teacherToken,
+      },
+    },
   });
 });
-
 
 // ==================== STUDENT - GET ALL INTERESTED TEACHERS FOR LESSON ====================
 
