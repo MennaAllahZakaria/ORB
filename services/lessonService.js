@@ -112,6 +112,8 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
     return res.status(200).json({ message: "You rejected this request." });
   }
 
+  if (lesson.status !== "pending")
+    return next(new ApiError("Cannot respond to this lesson at its current status", 400));
   
   if (!lesson.interestedTeachers.includes(teacherId)) {
     lesson.interestedTeachers.push(teacherId);
@@ -176,6 +178,9 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
   if (!lesson) return next(new ApiError("Lesson not found", 404));
   if (lesson.student.toString() !== req.user._id.toString())
     return next(new ApiError("You are not authorized to modify this lesson", 403));
+
+  if (lesson.status !== "pending")
+    return next(new ApiError("Cannot choose a teacher for this lesson at its current status", 400));
 
   // تأكد أن المدرس كان من المهتمين
   if (!lesson.interestedTeachers.includes(teacherId))
@@ -304,3 +309,36 @@ exports.getLessons = asyncHandler(async (req, res, next) => {
 });
 
 
+// ================== COMPLETE LESSON AND RELEASE FUNDS ==================
+exports.completeLesson = asyncHandler(async (req, res, next) => {
+  const { lessonId } = req.params;
+
+  const lesson = await Lesson.findById(lessonId);
+  if (!lesson) return next(new ApiError("Lesson not found", 404));
+
+  lesson.status = "completed";
+  await lesson.save();
+
+  const teacher = await User.findById(lesson.acceptedTeacher);
+  if (teacher?.teacherProfile?.paymentInfo?.payoutRecipientId) {
+    const paymentController = require("./paymentService");
+    paymentController.releasePaymentToTeacher({ params: { lessonId } }, res, next);
+  }
+
+  res.status(200).json({ message: "Lesson completed and funds released." });
+});
+
+
+// =============================== STUDENT - CANCEL LESSON REQUEST ===============================
+exports.cancelLessonRequest = asyncHandler(async (req, res, next) => {
+  const { lessonId } = req.params;
+
+  const lesson = await Lesson.findById(lessonId);
+  if (!lesson) return next(new ApiError("Lesson not found", 404));
+  if (lesson.student.toString() !== req.user._id.toString())
+    return next(new ApiError("You are not authorized to cancel this lesson", 403));
+  lesson.status = "canceled";
+  await lesson.save();
+  res.status(200).json({ message: "Lesson request canceled successfully." });
+
+});

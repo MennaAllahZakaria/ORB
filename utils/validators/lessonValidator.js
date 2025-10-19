@@ -17,9 +17,9 @@ exports.createLessonValidator = [
         .withMessage("price required")
         .isFloat({ gt: 0 })
         .withMessage("price must be a positive number"),
-    check("requistedDate")
+    check("requestedDate")
         .notEmpty()
-        .withMessage("requistedDate required")
+        .withMessage("requestedDate required")
         .isISO8601()
         .withMessage("Invalid date format"),
     check("durationInMinutes")

@@ -1,6 +1,8 @@
 const authRoutes = require("./authRoute");
 const adminRoutes = require("./adminRoute");
 const lessonRoutes = require("./lessonRoute");
+const teacherRoutes = require("./teacherRoute");
+const paymentRoutes = require("./paymentRoute");
 
 const mountRoutes = (app) => {
     app.use((req, res, next) => {
@@ -31,6 +33,8 @@ const mountRoutes = (app) => {
 app.use("/auth", authRoutes);
 app.use("/admin", adminRoutes);
 app.use("/lessons", lessonRoutes);
+app.use("/teachers", teacherRoutes);
+app.use("/payments", paymentRoutes);
 
 //=============================
 // 404 Handler

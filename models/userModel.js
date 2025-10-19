@@ -1,27 +1,108 @@
 const mongoose = require("mongoose");
 
-const userSchema = new mongoose.Schema({
+// 📦 Subschema for teacher payment info
+const paymentInfoSchema = new mongoose.Schema(
+  {
+    method: {
+      type: String,
+      enum: ["bank", "wallet"],
+      required: false,
+    },
+    accountName: String,
+    accountNumber: String,
+    bankName: String,
+    walletProvider: String, // فودافون كاش - أورانج كاش - الخ
+    phoneNumber: String,
+    payoutRecipientId: String, // ID من Paymob بعد التسجيل
+  },
+  { _id: false }
+);
+
+// 📦 Subschema for teacher profile
+const teacherProfileSchema = new mongoose.Schema(
+  {
+    subjects: {
+      type: [String],
+      required: true,
+    },
+    experienceYears: {
+      type: Number,
+      required: true,
+    },
+    bio: {
+      type: String,
+      required: true,
+    },
+    pricePerHour: {
+      type: Number,
+      required: true,
+    },
+    certificate: {
+      type: String,
+    },
+    verificationStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
+    },
+    paymentInfo: paymentInfoSchema,
+  },
+  { _id: false }
+);
+
+// 📦 Subschema for student profile
+const studentProfileSchema = new mongoose.Schema(
+  {
+    grade: {
+      type: String,
+      enum: [
+        "KG1",
+        "KG2",
+        "Grade 1",
+        "Grade 2",
+        "Grade 3",
+        "Grade 4",
+        "Grade 5",
+        "Grade 6",
+        "Grade 7 (Preparatory 1)",
+        "Grade 8 (Preparatory 2)",
+        "Grade 9 (Preparatory 3)",
+        "Grade 10 (Secondary 1)",
+        "Grade 11 (Secondary 2)",
+        "Grade 12 (Secondary 3)",
+        "University",
+        "Other",
+      ],
+    },
+    school: String,
+  },
+  { _id: false }
+);
+
+// 🧩 Main user schema
+const userSchema = new mongoose.Schema(
+  {
     firstName: {
-        type: String,
-        trim: true,
-        required: [true, "firstName required"],
+      type: String,
+      trim: true,
+      required: [true, "firstName required"],
     },
     lastName: {
-        type: String,
-        trim: true,
-        required: [true, "lastName required"],
+      type: String,
+      trim: true,
+      required: [true, "lastName required"],
     },
     email: {
-        type: String,
-        unique: true,
-        required: [true, "email required"],
-        lowercase: true,
-        trim: true
+      type: String,
+      unique: true,
+      required: [true, "email required"],
+      lowercase: true,
+      trim: true,
     },
     password: {
-        type: String,
-        required: [true, "password required"],
-        minlength: [8, "too short password"],
+      type: String,
+      required: [true, "password required"],
+      minlength: [8, "too short password"],
     },
 
     passwordChangedAt: Date,
@@ -30,104 +111,76 @@ const userSchema = new mongoose.Schema({
     passwordResetVerified: Boolean,
 
     role: {
-        type: String,
-        enum: ["student", "teacher", "admin"],
-        default: "student"
+      type: String,
+      enum: ["student", "teacher", "admin"],
+      default: "student",
     },
 
     fcmToken: {
-        type: String,
-        default: null,
+      type: String,
+      default: null,
     },
 
     preferredLang: {
-        type: String,
-        enum: ["en", "ar"],
-        default: "en"
+      type: String,
+      enum: ["en", "ar"],
+      default: "en",
     },
 
-    // 📌 only for teachers
-teacherProfile: {
-    type: {
-        subjects: {
-            type: [String],
-            required: function() { return this.role === "teacher"; },
-        },
-        experienceYears: {
-            type: Number,
-            required: function() { return this.role === "teacher"; },
-        },
-        bio: {
-            type: String,
-            required: function() { return this.role === "teacher"; },
-        },
-        pricePerHour: {
-            type: Number,
-            required: function() { return this.role === "teacher"; },
-        },
-        certificate: {
-            type: String,
-        },
-        verificationStatus: {
-            type: String,
-            enum: ["pending", "approved", "rejected"],
-            default: "pending"
-        }
+    teacherProfile: {
+      type: teacherProfileSchema,
+      required: function () {
+        return this.role === "teacher";
+      },
     },
-    required: function() { return this.role === "teacher"; } 
-},
 
-
-    // 📌 only for students
     studentProfile: {
-        grade: {
-        type: String,
-        enum: [
-            "KG1", "KG2",
-            "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6",
-            "Grade 7 (Preparatory 1)", "Grade 8 (Preparatory 2)", "Grade 9 (Preparatory 3)",
-            "Grade 10 (Secondary 1)", "Grade 11 (Secondary 2)", "Grade 12 (Secondary 3)",
-            "University", "Other"
-        ],
-        required: function() { return this.role === "student"; }
-        },
-        school: String
+      type: studentProfileSchema,
+      required: function () {
+        return this.role === "student";
+      },
     },
 
     status: {
-        type: String,
-        default: "active",
-        enum: ["active", "inactive", "banned"],
+      type: String,
+      default: "active",
+      enum: ["active", "inactive", "banned"],
     },
-    imageProfile: {
-        type: String,
-        default: null,
-    },
-    phone: {
-        type: String,
-        default: null,
-    },
-}, { timestamps: true });
 
-userSchema.set("toJSON", {
-    transform: function (doc, ret) {
-        delete ret.password;
-        delete ret.__v;
-        delete ret.passwordResetCode;
-        delete ret.passwordResetExpires;
-        delete ret.passwordResetVerified;
-        return ret;
+    imageProfile: {
+      type: String,
+      default: null,
     },
+
+    phone: {
+      type: String,
+      default: null,
+    },
+  },
+  { timestamps: true }
+);
+
+// 🧹 Remove sensitive fields when converting to JSON
+userSchema.set("toJSON", {
+  transform: function (doc, ret) {
+    delete ret.password;
+    delete ret.__v;
+    delete ret.passwordResetCode;
+    delete ret.passwordResetExpires;
+    delete ret.passwordResetVerified;
+    return ret;
+  },
 });
 
-userSchema.pre("save", function(next) {
-    if (this.role !== "teacher") {
-        this.teacherProfile = undefined;
-    }
-    if (this.role !== "student") {
-        this.studentProfile = undefined;
-    }
-    next();
+// 🧠 Before saving, clean unused profiles
+userSchema.pre("save", function (next) {
+  if (this.role !== "teacher") {
+    this.teacherProfile = undefined;
+  }
+  if (this.role !== "student") {
+    this.studentProfile = undefined;
+  }
+  next();
 });
 
 const User = mongoose.model("User", userSchema);
