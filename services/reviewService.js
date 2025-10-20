@@ -4,6 +4,8 @@ const Review = require("../models/reviewModel");
 const Lesson = require("../models/lessonModel");
 const User = require("../models/userModel");
 const {addPoints , deductPoints} = require("./pointsService");
+const ApiFeatures = require("../utils/apiFeatures");
+const ApiError = require("../utils/apiError");
 
 
 // 🎯 add new review
@@ -58,14 +60,44 @@ exports.getAllReviews = HandlerFactory.getAll(Review);
 
 // 📋 get all reviews for teacher
 
-exports.getAllReviewsForTeacher = asyncHandler(async (req, res) => {
-    const teacherId = req.params.teacherId;
-    const reviews = await Review.find({ teacher: teacherId });
-    res.status(200).json({
-      status: "success",
-      results: reviews.length,
-      data: reviews,
-    });
+
+exports.getAllReviewsForTeacher = asyncHandler(async (req, res, next) => {
+  const { teacherId } = req.params;
+
+  // ✅validation for teacher ID
+  if (!teacherId) {
+    return next(new ApiError("Teacher ID is required", 400));
+  }
+
+  // ✅ filter reviews by teacher
+  const filter = { teacher: teacherId };
+
+  // 📊 calc total reviews
+  const reviewsCount = await Review.countDocuments(filter);
+
+  // ⚙️  ApiFeatures (filter , search ,  pagination)
+  const apiFeatures = new ApiFeatures(
+    Review.find(filter)
+      .populate("student", "firstName lastName email") // جلب بيانات الطالب
+      .populate("teacher", "firstName lastName"), // ممكن تضيفها لو محتاج
+    req.query
+  )
+    .filter()
+    .search("reviewModel")
+    .sort()
+    .limitFields()
+    .paginate(reviewsCount);
+
+  const { mongooseQuery, paginationResult } = apiFeatures;
+  const reviews = await mongooseQuery;
+
+  // 📤 الإرسال
+  res.status(200).json({
+    status: "success",
+    results: reviews.length,
+    pagination: paginationResult,
+    data: reviews,
+  });
 });
 
 // 📄 get aon review

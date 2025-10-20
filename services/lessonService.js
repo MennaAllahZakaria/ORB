@@ -8,6 +8,7 @@ const { v4: uuidv4 } = require("uuid");
 const { generateZegoToken } = require("../utils/zego");
 const {addPoints , deductPoints} = require("./pointsService");
 const admin = require("../fireBase/admin");
+const ApiFeatures = require("../utils/apiFeatures");
 
 // ==================== STUDENT - CREATE LESSON REQUEST ====================
 exports.createLessonRequest = asyncHandler(async (req, res, next) => {
@@ -306,37 +307,52 @@ exports.getLessons = asyncHandler(async (req, res, next) => {
   const user = req.user;
   let filter = {};
 
-  // 🎓 الطالب -> يشوف طلباته فقط
+  // 🎓 student -> get only his lesson
   if (user.role === "student") {
     filter = { student: user._id };
 
-  // 👨‍🏫 المدرس -> يشوف الطلبات اللي تخص مواده أو اللي قدّم فيها اهتمام
+  // 👨‍🏫 teacher -> can veiw all his interested lessons
   } else if (user.role === "teacher") {
     filter = {
       $or: [
         { subject: { $in: user.subjects || [] } },
-        { interestedTeachers: user._id }
+        { interestedTeachers: user._id },
       ],
     };
 
-  // 👨‍💼 الأدمن -> يشوف كل الطلبات
+  // 👨‍💼 admin can view all 
   } else if (user.role === "admin") {
     filter = {};
 
-  // 🚫 أي دور آخر -> مش مسموح
   } else {
     return next(new ApiError("You are not authorized to view lessons", 403));
   }
 
-  const lessons = await Lesson.find(filter)
-    .populate("student", "firstName lastName email")
-    .populate("acceptedTeacher", "firstName lastName email")
-    .populate("interestedTeachers", "firstName lastName email")
-    .sort({ createdAt: -1 });
+  // 📊 حساب عدد الدروس
+  const lessonsCount = await Lesson.countDocuments(filter);
 
+  // ⚙️ تطبيق ApiFeatures
+  const apiFeatures = new ApiFeatures(
+    Lesson.find(filter)
+      .populate("student", "firstName lastName email")
+      .populate("acceptedTeacher", "firstName lastName email")
+      .populate("interestedTeachers", "firstName lastName email"),
+    req.query
+  )
+    .filter() // ?subject=Math
+    .search("lessonModel") // ?keyword=english
+    .sort() // ?sort=-createdAt
+    .limitFields() // ?fields=subject,status
+    .paginate(lessonsCount); // ?page=2&limit=10
+
+  const { mongooseQuery, paginationResult } = apiFeatures;
+  const lessons = await mongooseQuery;
+
+  // 📤 الإرسال
   res.status(200).json({
     status: "success",
     results: lessons.length,
+    pagination: paginationResult,
     data: lessons,
   });
 });
