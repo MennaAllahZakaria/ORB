@@ -6,6 +6,7 @@ const Notification = require("../models/notificationModel");
 const { decryptToken } = require("../utils/fcmToken");
 const { v4: uuidv4 } = require("uuid");
 const { generateZegoToken } = require("../utils/zego");
+const {addPoints , deductPoints} = require("./pointsService");
 const admin = require("../fireBase/admin");
 
 // ==================== STUDENT - CREATE LESSON REQUEST ====================
@@ -350,6 +351,10 @@ exports.completeLesson = asyncHandler(async (req, res, next) => {
 
   lesson.status = "completed";
   await lesson.save();
+    // ✅ Add points for completing lesson
+  if (lesson.student?._id) {
+    await addPoints(lesson.student._id, 20, "Lesson completed");
+  }
 
   const teacher = await User.findById(lesson.acceptedTeacher);
   if (teacher?.teacherProfile?.paymentInfo?.payoutRecipientId) {
@@ -371,6 +376,12 @@ exports.cancelLessonRequest = asyncHandler(async (req, res, next) => {
     return next(new ApiError("You are not authorized to cancel this lesson", 403));
   lesson.status = "canceled";
   await lesson.save();
+
+  // ⚠️ Deduct points for cancellation
+  if (lesson.student?._id) {
+    await deductPoints(lesson.student._id, 15);
+  }
+
   res.status(200).json({ message: "Lesson request canceled successfully." });
 
 });

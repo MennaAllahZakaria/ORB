@@ -156,6 +156,17 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+
+    points: {
+    type: Number,
+    default: 0,
+  },
+   level: {
+    type: String,
+    enum: ["Bronze", "Silver", "Gold", "Platinum"],
+    default: "Bronze",
+  },
+
   },
   { timestamps: true }
 );
@@ -182,6 +193,19 @@ userSchema.pre("save", function (next) {
   }
   next();
 });
+
+
+userSchema.methods.updateLevel = function () {
+  if (this.points >= 1000) {
+    this.level = "Platinum";
+  } else if (this.points >= 500) {
+    this.level = "Gold";
+  } else if (this.points >= 200) {
+    this.level = "Silver";
+  } else {
+    this.level = "Bronze";
+  }
+};
 
 const User = mongoose.model("User", userSchema);
 module.exports = User;

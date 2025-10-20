@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const asyncHandler = require("express-async-handler");
 const Lesson = require("../models/lessonModel");
 const ApiError = require("../utils/apiError");
+const {addPoints} = require("./pointsService");
 
 // ===============================
 // 1️⃣ INITIATE PAYMENT
@@ -154,6 +155,13 @@ exports.handlePaymentCallback = asyncHandler(async (req, res) => {
         "payment.status": "paid",
         "payment.transactionId": obj.id,
       });
+
+        // ✅ Add booking points
+        const lesson = await Lesson.findById(lessonId).populate("student");
+        if (lesson?.student?._id) {
+          addPoints(lesson.student._id, 10, "Lesson booked successfully");
+        }
+        
     } else {
       await Lesson.findByIdAndUpdate(lessonId, {
         "payment.status": "failed",
