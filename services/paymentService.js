@@ -175,6 +175,7 @@ exports.releasePaymentToTeacher = asyncHandler(async (req, res, next) => {
 
   const lesson = await Lesson.findById(lessonId).populate("acceptedTeacher");
   if (!lesson) return next(new ApiError("Lesson not found", 404));
+
   if (lesson.status !== "completed")
     return next(new ApiError("Lesson must be completed before payout", 400));
 
@@ -188,28 +189,59 @@ exports.releasePaymentToTeacher = asyncHandler(async (req, res, next) => {
   if (!teacher?.teacherProfile?.payoutRecipientId)
     return next(new ApiError("Teacher has no payout account", 400));
 
-  try{
-      const { data: payout } = await axios.post(
-          "https://accept.paymob.com/api/acceptance/payout",
-          {
-            amount: lesson.price * 100,
-            currency: "EGP",
-            recipient: teacher.teacherProfile.payoutRecipientId,
-            description: `Payout for lesson ${lesson._id}`,
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${process.env.PAYMOB_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-          }
-        );
+  // 💰 حساب النسب
+  const platformFee = 0.20; // 20% للمنصة
+  const gatewayFee = 0.03; // 3% لبوابة الدفع
+  const totalFeePercentage = platformFee + gatewayFee;
 
-        lesson.paymentStatus = "released";
-        lesson.teacherPayoutId = payout.id;
-        await lesson.save();
+  const totalAmount = lesson.price;
+  const teacherAmount = totalAmount * (1 - totalFeePercentage);
 
-  }catch (err) {
+  try {
+    // 🔄 إرسال تحويل Paymob
+    const { data: payout } = await axios.post(
+      "https://accept.paymob.com/api/acceptance/payout",
+      {
+        amount: Math.round(teacherAmount * 100), 
+        currency: "EGP",
+        recipient: teacher.teacherProfile.payoutRecipientId,
+        description: `Payout for lesson ${lesson._id} (after fees)`,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYMOB_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    // 💾 تحديث بيانات الدرس في قاعدة البيانات
+    lesson.paymentStatus = "released";
+    lesson.teacherPayoutId = payout.id;
+    lesson.payment = {
+      ...lesson.payment,
+      amount: totalAmount,
+      status: "released",
+    };
+    lesson.amountPaid = teacherAmount; // المبلغ اللي فعلاً وصله
+    await lesson.save();
+
+    // 🔍 حفظ سجل إضافي (اختياري)
+    console.log(
+      `✅ Payment released to teacher: ${teacher._id} | Lesson: ${lesson._id} | Teacher Amount: ${teacherAmount} EGP`
+    );
+
+    res.status(200).json({
+      message: "Payment released to teacher successfully",
+      payoutId: payout.id,
+      details: {
+        totalAmount,
+        teacherAmount,
+        platformFee: totalAmount * platformFee,
+        gatewayFee: totalAmount * gatewayFee,
+      },
+    });
+  } catch (err) {
     console.error("❌ Paymob payout failed:", err.response?.data || err.message);
     return next(new ApiError("Failed to release payment to teacher", 500));
   }

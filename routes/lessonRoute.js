@@ -7,7 +7,8 @@ const {
     chooseTeacher,
     getInterestedTeachers,
     getLessons,
-    cancelLessonRequest
+    cancelLessonRequest,
+    completeLesson
     
 } = require("../services/lessonService");
 
@@ -58,5 +59,11 @@ router.get("/", getLessons);
 router.delete(
     "/:lessonId/cancel", allowedTo("student"),
     cancelLessonRequest
+);
+
+// ================= STUDENT - COMPLETE LESSON =================
+router.patch(
+    "/:lessonId/complete", allowedTo("teacher"),
+    completeLesson
 );
 module.exports = router;

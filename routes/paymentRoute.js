@@ -20,7 +20,7 @@ router.post(
 );  
 // ================= PAYMENT CALLBACK =================
 router.post(
-    "callback",
+    "/callback",
     handlePaymentCallback
 );  
 

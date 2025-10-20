@@ -177,6 +177,7 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
 
 exports.chooseTeacher = asyncHandler(async (req, res, next) => {
   const { lessonId, teacherId } = req.params;
+  const {price} = req.body;
   const lesson = await Lesson.findById(lessonId);
 
   if (!lesson) return next(new ApiError("Lesson not found", 404));
@@ -192,6 +193,11 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
   // ✅ accept the teacher
   lesson.acceptedTeacher = teacherId;
   lesson.status = "approved";
+
+  // finalize price if provided
+  if (price) {
+    lesson.price = price;
+  }
 
   // 🎥 ZegoCloud init room
   const meetingRoomId = `lesson_${uuidv4()}`;
