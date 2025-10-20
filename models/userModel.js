@@ -46,6 +46,15 @@ const teacherProfileSchema = new mongoose.Schema(
       default: "pending",
     },
     paymentInfo: paymentInfoSchema,
+
+     avgRating: {
+      type: Number,
+      default: 0,
+    },
+    totalReviews: {
+      type: Number,
+      default: 0,
+    },
   },
   { _id: false }
 );
