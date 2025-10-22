@@ -30,6 +30,24 @@ exports.createLessonValidator = [
     validatorMiddleware,
 ];
 
+exports.counterOfferFromTeacherValidator = [
+    check("lessonId")
+        .notEmpty()
+        .withMessage("lessonId required")
+        .isMongoId()
+        .withMessage("Invalid lessonId format"),
+    check("proposedPrice")
+        .notEmpty()
+        .withMessage("proposedPrice required")
+        .isFloat({ gt: 0 })
+        .withMessage("proposedPrice must be a positive number"),
+    check("message")
+        .optional()
+        .isString()
+        .withMessage("message must be a string"),
+    validatorMiddleware,
+];
+
 
 exports.respondToLessonRequestValidator = [
     check("lessonId")
@@ -59,7 +77,7 @@ exports.chooseTeacherValidator = [
     validatorMiddleware,
 ];
 
-exports.getInterestedTeachersValidator = [
+exports.lessonIdValidator = [
     check("lessonId")
         .notEmpty()
         .withMessage("lessonId required")

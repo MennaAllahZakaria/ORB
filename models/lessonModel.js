@@ -45,6 +45,15 @@ const lessonSchema = new mongoose.Schema(
         type: Number,
         required: [true, "price required"],
     },
+    offers: [
+      {
+        teacher: { type: mongoose.Schema.ObjectId, ref: "User" },
+        proposedPrice: Number,
+        message: String,
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+
 
     requestedDate: {
         type: Date,
@@ -110,11 +119,23 @@ const lessonSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-    zegoToken: String,
+    zegoTokenForStudent: {
+      type: String,
+      default: null,
+    },
+    zegoTokenForTeacher: {
+      type: String,
+      default: null,
+    },
 
     createdAt: {
       type: Date,
       default: Date.now,
+    },
+    requestType: {
+      type: String,
+      enum: ["open", "direct"],
+      required: true,
     },
   },
   { timestamps: true }

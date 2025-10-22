@@ -8,7 +8,10 @@ const {
     getInterestedTeachers,
     getLessons,
     cancelLessonRequest,
-    completeLesson
+    completeLesson,
+    counterOfferFromTeacher,
+    updateLessonPriceRequest,
+    getOffersForLesson
     
 } = require("../services/lessonService");
 
@@ -18,7 +21,7 @@ const {
     createLessonValidator,
     respondToLessonRequestValidator,
     chooseTeacherValidator,
-    getInterestedTeachersValidator
+    lessonIdValidator
 } = require("../utils/validators/lessonValidator");
 
 const router = express.Router();
@@ -48,7 +51,7 @@ router.post(
 // ================= STUDENT - GET INTERESTED TEACHERS FOR LESSON =================
 router.get(
     "/:lessonId/interested-teachers", allowedTo("student"),
-    getInterestedTeachersValidator,
+    lessonIdValidator,
     getInterestedTeachers
 );
 
@@ -66,4 +69,23 @@ router.patch(
     "/:lessonId/complete", allowedTo("teacher"),
     completeLesson
 );
+
+// ================= TEACHER - COUNTER OFFER FOR LESSON =================
+router.post(
+    "/:lessonId/counter-offer", allowedTo("teacher"),
+    counterOfferFromTeacher
+);
+// ================= STUDENT - GET OFFERS FOR LESSON =================
+router.get(
+    "/:lessonId/offers", allowedTo("student"),
+    getOffersForLesson
+);
+
+// ================= STUDENT - UPDATE LESSON PRICE REQUEST =================
+router.patch(
+    "/:lessonId/update-price", allowedTo("student"),
+    
+    updateLessonPriceRequest
+);
+
 module.exports = router;

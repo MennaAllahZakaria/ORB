@@ -31,7 +31,7 @@ const teacherProfileSchema = new mongoose.Schema(
     },
     bio: {
       type: String,
-      required: true,
+      //required: true,
     },
     pricePerHour: {
       type: Number,
