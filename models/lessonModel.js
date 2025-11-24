@@ -26,24 +26,24 @@ const paymentSchema = new mongoose.Schema(
 const lessonSchema = new mongoose.Schema(
   {
     student: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-        required: [true, "student id required"],
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: [true, "student id required"],
     },
 
     title: {
-        type: String,
-        required: [true, "title required"],
+      type: String,
+      required: [true, "title required"],
     },
 
     subject: {
-        type: String,
-        required: [true, "subject required"],
+      type: String,
+      required: [true, "subject required"],
     },
 
     price: {
-        type: Number,
-        required: [true, "price required"],
+      type: Number,
+      required: [true, "price required"],
     },
     offers: [
       {
@@ -54,21 +54,21 @@ const lessonSchema = new mongoose.Schema(
       },
     ],
 
-
     requestedDate: {
-        type: Date,
-        required: [true, "requestedDate required"],
+      type: Date,
+      required: [true, "requestedDate required"],
     },
 
     durationInMinutes: {
-        type: Number,
-        required: [true, "durationInMinutes required"],
+      type: Number,
+      required: [true, "durationInMinutes required"],
     },
 
+    // Lesson lifecycle status
     status: {
-        type: String,
-        enum: ["pending", "approved", "completed", "canceled"],
-        default: "pending"
+      type: String,
+      enum: ["pending", "approved", "completed", "canceled"],
+      default: "pending",
     },
 
     interestedTeachers: [
@@ -86,7 +86,7 @@ const lessonSchema = new mongoose.Schema(
     // 💳 Payment info
     paymentStatus: {
       type: String,
-      enum: ["unpaid", "pending", "paid", "held", "released", "refunded"],
+      enum: ["unpaid", "pending", "paid", "failed", "held", "released", "refunded"],
       default: "unpaid",
     },
 
@@ -101,7 +101,20 @@ const lessonSchema = new mongoose.Schema(
       type: String,
       default: null, // ID for payout transaction (when released)
     },
-         // 🎥 ZegoCloud (Online Meeting)
+
+    // 💸 Fee breakdown (platform + gateway)
+    fees: {
+      platform: {
+        type: Number,
+        default: 0,
+      },
+      gateway: {
+        type: Number,
+        default: 0,
+      },
+    },
+
+    // 🎥 ZegoCloud (Online Meeting)
     meetingRoomId: {
       type: String,
       default: null, // Unique room ID from ZegoCloud
@@ -141,6 +154,7 @@ const lessonSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Virtual field to calculate actual meeting duration in minutes
 lessonSchema.virtual("durationMinutes").get(function () {
   if (this.meetingStartTime && this.meetingEndTime) {
     const diff = (this.meetingEndTime - this.meetingStartTime) / 1000 / 60;
@@ -148,6 +162,5 @@ lessonSchema.virtual("durationMinutes").get(function () {
   }
   return 0;
 });
-
 
 module.exports = mongoose.model("Lesson", lessonSchema);
