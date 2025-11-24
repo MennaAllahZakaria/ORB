@@ -17,7 +17,7 @@ const router = express.Router();
 router.use(protect);
 
 // ================= TEACHER - UPDATE PAYMENT INFO =================
-router.put(
+router.patch(
     "/payment-info", allowedTo("teacher"),
     updatePaymentInfoValidator,
     updatePaymentInfo

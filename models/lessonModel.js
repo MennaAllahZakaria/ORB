@@ -140,6 +140,11 @@ const lessonSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    activeParticipants: {
+      type: [String], 
+      default: [],
+    },
+
 
     createdAt: {
       type: Date,

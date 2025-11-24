@@ -33,6 +33,102 @@ PAYMOB_REQUIRED_ENV_VARS.forEach((key) => {
 });
 
 // ===============================
+// INTERNAL HELPER (used by route + webhook)
+// ===============================
+async function releasePaymentForLesson(lesson) {
+  // Make sure we have fresh data & populated teacher
+  if (!lesson.populated || !lesson.populated("acceptedTeacher")) {
+    lesson = await Lesson.findById(lesson._id).populate("acceptedTeacher");
+    if (!lesson) throw new Error("Lesson not found during payout");
+  }
+
+  if (!lesson.acceptedTeacher) {
+    throw new Error("No accepted teacher for this lesson");
+  }
+
+  // Already released? idempotent
+  if (lesson.paymentStatus === PAYMENT_STATUS.RELEASED) {
+    return {
+      alreadyReleased: true,
+      message: "Payment already released",
+    };
+  }
+
+  if (lesson.paymentStatus !== PAYMENT_STATUS.PAID) {
+    throw new Error("Payment is not in PAID state, cannot release payout");
+  }
+
+  const teacher = lesson.acceptedTeacher;
+
+  const payoutRecipientId =
+    teacher?.teacherProfile?.paymentInfo?.payoutRecipientId;
+
+  if (!payoutRecipientId) {
+    throw new Error("Teacher has no payoutRecipientId");
+  }
+
+  // Fees configuration
+  const platformFeePercentage = 0.20; // 20%
+  const gatewayFeePercentage = 0.03; // 3%
+  const totalFeePercentage = platformFeePercentage + gatewayFeePercentage;
+
+  const totalAmount = lesson.price;
+  const teacherAmount = totalAmount * (1 - totalFeePercentage);
+
+  const platformFeeAmount = totalAmount * platformFeePercentage;
+  const gatewayFeeAmount = totalAmount * gatewayFeePercentage;
+
+  // 🔁 Call Paymob payout API
+  const { data: payout } = await axios.post(
+    "https://accept.paymob.com/api/acceptance/payout",
+    {
+      amount: Math.round(teacherAmount * 100), // Paymob cents
+      currency: "EGP",
+      recipient: payoutRecipientId,
+      description: `Payout for lesson ${lesson._id} (after fees)`,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.PAYMOB_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  // 💾 Update lesson with payout info
+  lesson.paymentStatus = PAYMENT_STATUS.RELEASED;
+  lesson.teacherPayoutId = payout.id;
+  lesson.payment = {
+    ...lesson.payment,
+    amount: totalAmount,
+    status: PAYMENT_STATUS.RELEASED,
+  };
+  lesson.amountPaid = teacherAmount;
+  lesson.fees = {
+    platform: platformFeeAmount,
+    gateway: gatewayFeeAmount,
+  };
+
+  await lesson.save();
+
+  console.log(
+    `✅ Payout released | lesson=${lesson._id} | teacher=${teacher._id} | amount=${teacherAmount} EGP`
+  );
+
+  return {
+    payoutId: payout.id,
+    totalAmount,
+    teacherAmount,
+    platformFee: platformFeeAmount,
+    gatewayFee: gatewayFeeAmount,
+  };
+}
+
+// ✅ export helper for other modules (like Zego webhook)
+exports._releasePaymentForLesson = releasePaymentForLesson;
+
+
+// ===============================
 // 1️⃣ INITIATE PAYMENT
 // ===============================
 exports.initiatePayment = asyncHandler(async (req, res, next) => {
@@ -300,7 +396,7 @@ exports.handlePaymentCallback = asyncHandler(async (req, res) => {
 exports.releasePaymentToTeacher = asyncHandler(async (req, res, next) => {
   const { lessonId } = req.params;
 
-  const lesson = await Lesson.findById(lessonId).populate("acceptedTeacher");
+  let lesson = await Lesson.findById(lessonId).populate("acceptedTeacher");
   if (!lesson) {
     return next(new ApiError("Lesson not found", 404));
   }
@@ -322,85 +418,27 @@ exports.releasePaymentToTeacher = asyncHandler(async (req, res, next) => {
     return next(new ApiError("Payment not received yet", 400));
   }
 
-  const teacher = lesson.acceptedTeacher;
-  if (!teacher) {
-    return next(new ApiError("No accepted teacher found for this lesson", 400));
-  }
-
-  const payoutRecipientId = teacher?.teacherProfile?.paymentInfo?.payoutRecipientId;
-
-  if (!payoutRecipientId) {
-    return next(new ApiError("Teacher has no payout account", 400));
-  }
-
-
-  // 💰 Commission logic
-  const platformFeePercentage = 0.20; // 20% platform
-  const gatewayFeePercentage = 0.03; // 3% payment gateway
-  const totalFeePercentage = platformFeePercentage + gatewayFeePercentage;
-
-  const totalAmount = lesson.price; // full amount paid by student (EGP)
-  const teacherAmount = totalAmount * (1 - totalFeePercentage);
-
-  // Pre-calc fee breakdown for logging & storing
-  const platformFeeAmount = totalAmount * platformFeePercentage;
-  const gatewayFeeAmount = totalAmount * gatewayFeePercentage;
-
   try {
-    // ⚠️ TODO:
-    // Double-check this endpoint and authorization method against Paymob's latest payout docs.
-    // Many Paymob APIs use an auth_token from /auth/tokens instead of Bearer API key.
-    const { data: payout } = await axios.post(
-      "https://accept.paymob.com/api/acceptance/payout",
-      {
-        amount: Math.round(teacherAmount * 100), // paymob expects cents
-        currency: "EGP",
-        recipient: payoutRecipientId,
-        description: `Payout for lesson ${lesson._id} (after fees)`,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.PAYMOB_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    const result = await releasePaymentForLesson(lesson);
 
-    // 💾 Update lesson with payout info
-    lesson.paymentStatus = PAYMENT_STATUS.RELEASED;
-    lesson.teacherPayoutId = payout.id;
-    lesson.payment = {
-      ...lesson.payment,
-      amount: totalAmount,
-      status: PAYMENT_STATUS.RELEASED,
-    };
-    lesson.amountPaid = teacherAmount; // Net amount teacher actually receives
-    lesson.fees = {
-      platform: platformFeeAmount,
-      gateway: gatewayFeeAmount,
-    };
-
-    await lesson.save();
-
-    console.log(
-      `✅ Payment released to teacher: ${teacher._id} | Lesson: ${lesson._id} | Teacher Amount: ${teacherAmount} EGP`
-    );
+    if (result.alreadyReleased) {
+      return res.status(200).json({
+        message: result.message,
+      });
+    }
 
     res.status(200).json({
       message: "Payment released to teacher successfully",
-      payoutId: payout.id,
+      payoutId: result.payoutId,
       details: {
-        totalAmount,
-        teacherAmount,
-        platformFee: platformFeeAmount,
-        gatewayFee: gatewayFeeAmount,
+        totalAmount: result.totalAmount,
+        teacherAmount: result.teacherAmount,
+        platformFee: result.platformFee,
+        gatewayFee: result.gatewayFee,
       },
     });
   } catch (err) {
-    console.error(
-      "[Paymob][Payout] Payout failed:",
-      err.response?.data || err.message
-    );
+    console.error("[Paymob][Payout] Error:", err.response?.data || err.message);
     return next(new ApiError("Failed to release payment to teacher", 500));
   }
 });
