@@ -4,6 +4,8 @@ const lessonRoutes = require("./lessonRoute");
 const teacherRoutes = require("./teacherRoute");
 const paymentRoutes = require("./paymentRoute");
 const zegoRoutes = require("./zegoRoute");
+const revieweRoutes = require("./reviewsRoute");
+const pointsRoutes = require("./pointsRoute");
 
 const mountRoutes = (app) => {
     app.use((req, res, next) => {
@@ -37,6 +39,8 @@ app.use("/lessons", lessonRoutes);
 app.use("/teachers", teacherRoutes);
 app.use("/payments", paymentRoutes);
 app.use("/zego", zegoRoutes);
+app.use("/reviews", revieweRoutes);
+app.use("/points", pointsRoutes);
 
 //=============================
 // 404 Handler

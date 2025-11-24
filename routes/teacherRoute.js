@@ -18,19 +18,19 @@ router.use(protect);
 
 // ================= TEACHER - UPDATE PAYMENT INFO =================
 router.patch(
-    "/payment-info", allowedTo("teacher"),
+    "/me/payment-info", allowedTo("teacher"),
     updatePaymentInfoValidator,
     updatePaymentInfo
 );
 
 // ================= TEACHER - GET PAYMENT INFO =================
 router.get(
-    "/payment-info", allowedTo("teacher"),
+    "/me/payment-info", allowedTo("teacher"),
     getPaymentInfo
 );
 // ================= TEACHER - GET PAYOUT HISTORY =================
 router.get(
-    "/payout-history", allowedTo("teacher"),
+    "/me/payout-history", allowedTo("teacher"),
     getTeacherPayoutHistory
 );
 // ================= TEACHER - GET PROFILE =================
