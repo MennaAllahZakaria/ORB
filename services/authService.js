@@ -381,6 +381,47 @@ exports.resetPassword = asyncHandler(async (req, res, next) => {
   });
 });
 
+// ==================== Change Password ====================
+// @route   PUT /users/changePassword
+// @access  Private (user)
+exports.changePassword = asyncHandler(async (req, res, next) => {
+  const { currentPassword, newPassword } = req.body;
+
+  const user = await User.findById(req.user._id).select("+password");
+  if (!user) {
+    return next(new ApiError("User not found", 404));
+  }
+  const isMatch = await bcrypt.compare(currentPassword, user.password);
+  if (!isMatch) {
+    return next(new ApiError("Current password is incorrect", 401));
+  }
+  const saltRounds = getSaltRounds();
+  user.password = await bcrypt.hash(newPassword, saltRounds);
+  user.passwordChangedAt = Date.now();
+  await user.save();
+
+    const message = `
+      Your password has been changed successfully.
+      If you did not perform this action, please contact support immediately.
+      ORB Team
+      `;
+  try {
+    await sendEmail({
+      Email: user.email,
+      subject: "Password Changed Successfully",
+      message,
+    });
+  } catch (err) {
+    console.error("Error sending password change notification email:", err.message);
+  }
+
+
+  res.status(200).json({
+    status: "success",
+    message: "Password changed successfully.",
+  });
+});
+
 // ==================== UPDATE FCM TOKEN ====================
 // @route   PUT /users/updateFcmToken
 // @access  Private (user)

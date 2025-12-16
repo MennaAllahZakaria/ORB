@@ -6,7 +6,8 @@ const {
     forgetPassword,
     verifyForgotPasswordCode,
     resetPassword,
-    updateFcmToken
+    updateFcmToken,
+    changePassword
 } = require("../services/authService");
 
 const {
@@ -16,6 +17,7 @@ const {
     forgetPasswordValidator,
     verifyResetCodeValidator,
     resetPasswordValidator,
+    changePasswordValidator
 } = require("../utils/validators/authValidator");
 
 const { protect, allowedTo } = require("../middleware/authMiddleware");
@@ -49,5 +51,7 @@ router.post("/resetPassword",resetPasswordValidator, resetPassword);
 
 router.post("/updateFcmToken",protect, updateFcmToken);
 
+// ================= CHANGE PASSWORD =================
+router.put("/changePassword",protect, changePasswordValidator, changePassword);
 
 module.exports = router;

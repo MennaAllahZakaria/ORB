@@ -8,6 +8,50 @@ const axios = require("axios");
 // ===============================
 // 🔐 UPDATE TEACHER PAYMENT INFO
 // ===============================
+const PAYMOB_PAYOUTS_BASE = process.env.PAYMOB_PAYOUTS_BASE || "https://payouts.paymobsolutions.com";
+const PAYMOB_PAYOUTS_RECIPIENTS_PATH = process.env.PAYMOB_PAYOUTS_RECIPIENTS_PATH || "/recipients";
+const PAYMOB_PAYOUTS_AUTH_PATH = process.env.PAYMOB_PAYOUTS_AUTH_PATH || "/auth/tokens";
+const USE_AUTH_TOKEN = String(process.env.PAYMOB_PAYOUTS_USE_AUTH_TOKEN || "false").toLowerCase() === "true";
+// If you have a dedicated payouts bearer token saved in env (optional)
+const PAYMOB_PAYOUTS_BEARER = process.env.PAYMOB_PAYOUTS_BEARER || null;
+
+// Helper to get an Authorization header value for payouts endpoints
+async function getPayoutsAuthHeader() {
+  // Priority: explicit PAYMOB_PAYOUTS_BEARER -> auth token flow -> fallback to PAYMOB_API_KEY
+  if (PAYMOB_PAYOUTS_BEARER) {
+    return `Bearer ${PAYMOB_PAYOUTS_BEARER}`;
+  }
+
+  if (USE_AUTH_TOKEN) {
+    // Call payouts auth endpoint to get token
+    try {
+      const authUrl = `${PAYMOB_PAYOUTS_BASE}${PAYMOB_PAYOUTS_AUTH_PATH}`;
+      const { data } = await axios.post(
+        authUrl,
+        { api_key: process.env.PAYMOB_API_KEY },
+        { headers: { "Content-Type": "application/json" } }
+      );
+
+      // many Paymob auth endpoints return { token: "..." } or { auth: { token: "..." } }
+      const token = data?.token || data?.auth?.token || data?.data?.token;
+      if (!token) {
+        console.error("[Paymob][Payouts] auth token response missing token:", data);
+        throw new Error("Payouts auth response missing token");
+      }
+      return `Bearer ${token}`;
+    } catch (err) {
+      console.error("[Paymob][Payouts] Failed to obtain auth token:", err.response?.data || err.message);
+      throw new Error("Failed to obtain payouts auth token");
+    }
+  }
+
+  if (process.env.PAYMOB_API_KEY) {
+    return `Bearer ${process.env.PAYMOB_API_KEY}`;
+  }
+
+  throw new Error("No available Paymob credential for payouts. Set PAYMOB_PAYOUTS_BEARER or PAYMOB_API_KEY or enable auth token flow.");
+}
+
 exports.updatePaymentInfo = asyncHandler(async (req, res, next) => {
   const {
     method,
@@ -16,32 +60,31 @@ exports.updatePaymentInfo = asyncHandler(async (req, res, next) => {
     bankName,
     walletProvider,
     phoneNumber,
+    nationalId,
   } = req.body;
 
-  // ✅ Only teachers can set payment info
+  // Only teachers allowed
   if (req.user.role !== "teacher") {
     return next(new ApiError("Only teachers can add payment info", 403));
   }
 
   if (!method) {
-    return next(
-      new ApiError("Payment method is required (bank or wallet)", 400)
-    );
+    return next(new ApiError("Payment method is required (bank or wallet)", 400));
   }
 
   if (!["bank", "wallet"].includes(method)) {
-    return next(new ApiError("Invalid payment method", 400));
+    return next(new ApiError("Invalid payment method; allowed: 'bank' or 'wallet'", 400));
   }
 
   const teacher = await User.findById(req.user._id);
   if (!teacher) return next(new ApiError("Teacher not found", 404));
 
   if (!teacher.teacherProfile) teacher.teacherProfile = {};
-  if (!teacher.teacherProfile.paymentInfo)
-    teacher.teacherProfile.paymentInfo = {};
+  if (!teacher.teacherProfile.paymentInfo) teacher.teacherProfile.paymentInfo = {};
 
-  // 🔎 Extra validation based on method
+  // Extra validations by method
   if (method === "bank") {
+    // bank payouts generally require account number / bank name / full name and often national id
     if (!accountName || !accountNumber || !bankName) {
       return next(
         new ApiError(
@@ -50,6 +93,8 @@ exports.updatePaymentInfo = asyncHandler(async (req, res, next) => {
         )
       );
     }
+    // nationalId may be required by payouts provider - include if provided (preferred)
+    // If your Paymob account requires national_id, pass it too.
   }
 
   if (method === "wallet") {
@@ -63,61 +108,83 @@ exports.updatePaymentInfo = asyncHandler(async (req, res, next) => {
     }
   }
 
-  // ✅ Merge / update paymentInfo (do not erase existing payoutRecipientId)
   const oldInfo = teacher.teacherProfile.paymentInfo || {};
 
+  // Merge new info but preserve existing payoutRecipientId if present
   teacher.teacherProfile.paymentInfo = {
     method,
-    accountName: accountName || oldInfo.accountName,
-    accountNumber: accountNumber || oldInfo.accountNumber,
-    bankName: bankName || oldInfo.bankName,
-    walletProvider: walletProvider || oldInfo.walletProvider,
-    phoneNumber: phoneNumber || oldInfo.phoneNumber || teacher.phone,
-    payoutRecipientId: oldInfo.payoutRecipientId || null,
+    accountName: accountName || oldInfo.accountName || null,
+    accountNumber: accountNumber || oldInfo.accountNumber || null,
+    bankName: bankName || oldInfo.bankName || null,
+    walletProvider: walletProvider || oldInfo.walletProvider || null,
+    phoneNumber: phoneNumber || oldInfo.phoneNumber || teacher.phone || null,
+    nationalId: nationalId || oldInfo.nationalId || null,
+    payoutRecipientId: oldInfo.payoutRecipientId || null, // keep existing if present
   };
 
-  // ✅ Register teacher with Paymob (create recipient only once)
+  // If payoutRecipientId already exists, we skip creating a new recipient.
   if (!teacher.teacherProfile.paymentInfo.payoutRecipientId) {
-    try {
-      // ⚠️ NOTE:
-      // Check Paymob docs: some endpoints require auth_token from /auth/tokens
-      // instead of Bearer API key. Adjust if needed.
-      const paymobRes = await axios.post(
-        "https://accept.paymob.com/api/acceptance/payouts/recipients",
-        {
-          name:
-            accountName ||
-            `${teacher.firstName || ""} ${teacher.lastName || ""}`.trim(),
-          email: teacher.email,
-          phone:
-            phoneNumber || teacher.teacherProfile.paymentInfo.phoneNumber || teacher.phone,
-          type: method, // "bank" or "wallet"
-          account_number: accountNumber || null,
-          bank_name: bankName || null,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.PAYMOB_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+    // Build recipient payload depending on method. Align keys with the instant cashin / recipients doc you have.
+    const payload = {};
 
-      if (paymobRes.data?.id) {
-        teacher.teacherProfile.paymentInfo.payoutRecipientId = paymobRes.data.id;
-      } else {
-        throw new Error("Invalid Paymob response: missing recipient id");
-      }
-    } catch (err) {
-      console.error(
-        "[Paymob][Recipients] Registration failed:",
-        err.response?.data || err.message
-      );
-      return next(
-        new ApiError("Failed to register payout account with Paymob", 500)
-      );
+    // Common fields
+    payload.name = teacher.teacherProfile.paymentInfo.accountName || `${teacher.firstName || ""} ${teacher.lastName || ""}`.trim();
+    payload.email = teacher.email;
+    payload.phone = teacher.teacherProfile.paymentInfo.phoneNumber || teacher.phone || "";
+    // Some Paymob recipients require a national_id - include if present
+    if (teacher.teacherProfile.paymentInfo.nationalId) {
+      payload.national_id = teacher.teacherProfile.paymentInfo.nationalId;
     }
-  }
+
+    if (method === "bank") {
+      // depending on Paymob API this might be account_number / bank_code / bank_name / account_type etc.
+      payload.type = "bank_card"; // keep this generic; you may change to 'bank_account' or 'bank' per Paymob docs
+      payload.account_number = teacher.teacherProfile.paymentInfo.accountNumber;
+      // paymob might expect a bank code (e.g. "CIB") or numeric code - adapt if needed
+      if (teacher.teacherProfile.paymentInfo.bankName) payload.bank_name = teacher.teacherProfile.paymentInfo.bankName;
+      // optional: bank_transaction_type
+      payload.bank_transaction_type = "cash_transfer";
+    } else if (method === "wallet") {
+      payload.type = "wallet"; // adapt to 'vodafone' / 'orange' etc. per Paymob docs if required
+      payload.wallet_provider = teacher.teacherProfile.paymentInfo.walletProvider;
+      payload.msisdn = teacher.teacherProfile.paymentInfo.phoneNumber; // msisdn field may be required for wallets
+    }
+
+    // Use env-configured base and path for recipient creation
+    const recipientUrl = `${PAYMOB_PAYOUTS_BASE}${PAYMOB_PAYOUTS_RECIPIENTS_PATH}`;
+
+    try {
+      const authHeader = await getPayoutsAuthHeader();
+
+      const paymobRes = await axios.post(recipientUrl, payload, {
+        headers: {
+          Authorization: authHeader,
+          "Content-Type": "application/json",
+        },
+        timeout: 20000,
+      });
+
+      // The response shape may vary: look for id | recipient_id | data.id
+      const returnedId =
+        paymobRes.data?.id ||
+        paymobRes.data?.recipient_id ||
+        paymobRes.data?.data?.id ||
+        paymobRes.data?.data?.recipient_id;
+
+      if (!returnedId) {
+        console.error("[Paymob][Recipients] Unexpected response:", paymobRes.data);
+        throw new Error("Invalid Paymob recipient response (missing id)");
+      }
+
+      teacher.teacherProfile.paymentInfo.payoutRecipientId = returnedId;
+    } catch (err) {
+      // Log full response body for debugging (don't expose sensitive details to client)
+      console.error("[Paymob][Recipients] Registration failed:", err.response?.data || err.message);
+      // Keep the payment info changes locally so admin can retry, but return error
+      await teacher.save().catch((e) => console.error("[Save] failed while saving teacher after failed recipient:", e.message));
+      return next(new ApiError("Failed to register payout account with Paymob. Check logs for details.", 500));
+    }
+  } // end create recipient
 
   await teacher.save();
 

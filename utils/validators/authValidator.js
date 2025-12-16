@@ -46,10 +46,10 @@ exports.signupValidator = [
         .if(check("role").equals("teacher"))
         .notEmpty()
         .withMessage("Subjects are required for teacher"),
-    check("certificate")
-        .if(check("role").equals("teacher"))
-        .notEmpty()
-        .withMessage("Certificate is required for teacher"),
+    // check("certificate")
+    //     .if(check("role").equals("teacher"))
+    //     .notEmpty()
+    //     .withMessage("Certificate is required for teacher"),
 
 
     // 📌 only for student
@@ -125,6 +125,25 @@ exports.resetPasswordValidator = [
         if (val !== req.body.newPassword) {
             throw new Error("Passwords do not match");
         }
+        return true;
+        }),
+
+    validatorMiddleware,
+];
+
+// 🔹 Update Password Validator
+exports.changePasswordValidator = [
+    check("currentPassword")
+        .notEmpty().withMessage("Current password is required"),
+    check("newPassword")
+        .notEmpty().withMessage("New password is required")
+        .isLength({ min: 6 }).withMessage("Password must be at least 6 characters"),
+    check("passwordConfirm")
+        .notEmpty().withMessage("Password confirmation is required")
+        .custom((val, { req }) => {
+        if (val !== req.body.newPassword) {
+            throw new Error("Passwords do not match");
+        }   
         return true;
         }),
 

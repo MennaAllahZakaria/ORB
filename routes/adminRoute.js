@@ -50,17 +50,17 @@ router.get("/users/:id", idValidator, getUser);
 // 📌 Delete user
 router.delete("/users/:id", idValidator, deleteUser);
 // 📌 Update user status
-router.put("/users/:id/status", updateUserStatusValidator, updateStatusUser);
+router.patch("/users/:id/status", updateUserStatusValidator, updateStatusUser);
 
 //=======================Teacher Management=========================
 // 📌 Get all teachers
 router.get("/teachers/all", getAllTeachers);
+// 📌 Get all pending teachers
+router.get("/teachers/pending", getAllPendingTeachers);
 // 📌 Get specific teacher by id
 router.get("/teachers/:id", idValidator, getTeacher);
 // 📌 Delete teacher
 router.delete("/teachers/:id", idValidator, deleteTeacher);
-// 📌 Get all pending teachers
-router.get("/teachers/pending", getAllPendingTeachers);
 // 📌 Verify teacher
 router.put("/teachers/verify/:id", idValidator, verifyTeacher);
 // 📌 Reject teacher
@@ -68,7 +68,7 @@ router.put("/teachers/reject/:id", idValidator, rejectTeacher);
 
 //=======================Student Management=========================
 // 📌 Get all students
-router.get("/students", getAllStudents);
+router.get("/students/all", getAllStudents);
 // 📌 Get specific student by id
 router.get("/students/:id", idValidator, getStudent);
 // 📌 Delete student

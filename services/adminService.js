@@ -47,15 +47,16 @@ exports.createAdmin = asyncHandler(async (req, res, next) => {
     password: hashedPassword,
     role: "admin",
   });
+  console.log("New admin created:", password);
 
   // Try to send credentials email (do NOT break if email fails)
   try {
     const message = `
-Hi ${firstName} ${lastName},
-Your admin account has been created.
-Your temporary password is: ${password}
-Please change your password after logging in.
-`;
+                  Hi ${firstName} ${lastName},
+                  Your admin account has been created.
+                  Your temporary password is: ${password}
+                  Please change your password after logging in.
+                  `;
     await sendEmail({
       Email: email,
       subject: "Your Admin Account Details",
@@ -348,6 +349,7 @@ You can now login and start using your account.
  */
 exports.rejectTeacher = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
+  const { reason } = req.body;
   const updates = { "teacherProfile.verificationStatus": "rejected" };
 
   const teacher = await User.findOneAndUpdate(
@@ -363,10 +365,11 @@ exports.rejectTeacher = asyncHandler(async (req, res, next) => {
   // Notify teacher by email (do not break flow if email fails)
   try {
     const message = `
-Hi ${teacher.firstName} ${teacher.lastName},
-We regret to inform you that your teacher account has been rejected.
-For more information, please contact support.
-`;
+                    Hi ${teacher.firstName} ${teacher.lastName},
+                    We regret to inform you that your teacher account has been rejected.
+                    Reason: ${reason || "Not specified"}.
+                    For more information, please contact support.
+                    `;
     await sendEmail({
       Email: teacher.email,
       subject: "Your Teacher Account Rejected",
@@ -436,6 +439,21 @@ exports.deleteStudent = asyncHandler(async (req, res, next) => {
   if (!student) {
     return next(new ApiError("Student not found", 404));
   }
+  const message = `Dear ${student.firstName} ${student.lastName},
+  
+  We regret to inform you that your student account has been deleted by the administration.
+  If you believe this is a mistake or have any questions, please contact our support team.
+  `;
+  // Notify student by email (do not break flow if email fails)
+  try {
+    await sendEmail({
+      Email: student.email,
+      subject: "Your Student Account Deleted",
+      message,
+    });
+  } catch (err) {
+    console.error("Error sending student deletion email:", err.message);
+  } 
 
   await User.deleteOne({ _id: id });
 
