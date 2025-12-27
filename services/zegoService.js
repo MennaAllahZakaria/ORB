@@ -4,14 +4,14 @@ const Notification = require("../models/notificationModel");
 const { decryptToken } = require("../utils/fcmToken");
 const admin = require("../fireBase/admin");
 const { addPoints } = require("./pointsService");
-const { _releasePaymentForLesson } = require("./paymentService"); 
+const { _releasePaymentForLesson } = require("./paymentService");
 
 const isSameId = (a, b) => a && b && a.toString() === b.toString();
 
 exports.zegoCallback = asyncHandler(async (req, res) => {
   const { event, room_id, user_id, event_time } = req.body;
 
-  console.log("Zego Event:", { event, room_id, user_id, event_time });
+  console.log("[Zego] Event:", { event, room_id, user_id });
 
   if (!event || !room_id) {
     return res.status(400).json({ message: "Missing event or room_id" });
@@ -25,12 +25,12 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
     );
 
   if (!lesson) {
-    console.warn("Zego callback: lesson not found for room:", room_id);
-    return res.status(200).json({ message: "No matching lesson for this room" });
+    console.warn("[Zego] No lesson for room:", room_id);
+    return res.status(200).json({ message: "No matching lesson" });
   }
 
-  const teacher = lesson.acceptedTeacher || null;
-  const student = lesson.student || null;
+  const teacher = lesson.acceptedTeacher;
+  const student = lesson.student;
 
   const zegoUserId = String(user_id || "").trim();
   const eventDate = event_time ? new Date(event_time * 1000) : new Date();
@@ -40,9 +40,9 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
   }
 
   switch (event) {
-    // ============================
-    // 1️⃣ User Joined the Room
-    // ============================
+    /* ============================
+       1️⃣ USER JOINED
+    ============================ */
     case "RoomUserJoin": {
       if (!lesson.activeParticipants.includes(zegoUserId)) {
         lesson.activeParticipants.push(zegoUserId);
@@ -55,7 +55,7 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
 
       await lesson.save();
 
-      // First join → session started
+      // First participant joined → notify
       if (
         lesson.meetingStatus === "ongoing" &&
         lesson.activeParticipants.length === 1
@@ -63,95 +63,96 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
         await sendLessonNotification([teacher, student], {
           titleEn: "🎥 The lesson has started!",
           titleAr: "🎥 بدأت الحصة الآن!",
-          bodyEn: "The online lesson is now live. Please join the room.",
-          bodyAr: "بدأت الحصة الآن! يمكنك الانضمام إلى الغرفة.",
+          bodyEn: "The online lesson is now live. Please join.",
+          bodyAr: "بدأت الحصة الآن! يمكنك الانضمام.",
           type: "lesson_started",
           lessonId: lesson._id,
         });
       }
-
       break;
     }
 
-    // ============================
-    // 2️⃣ User Left the Room
-    // ============================
+    /* ============================
+       2️⃣ USER LEFT
+    ============================ */
     case "RoomUserLeave": {
       lesson.activeParticipants = lesson.activeParticipants.filter(
         (id) => id !== zegoUserId
       );
 
-      const noOneLeft =
+      const roomEmpty =
         lesson.activeParticipants.length === 0 &&
         lesson.meetingStatus !== "finished";
 
-      if (noOneLeft) {
-        lesson.meetingEndTime = eventDate;
-        lesson.meetingStatus = "finished";
-
-        // If lesson was approved → consider it completed now
-        const wasApproved = lesson.status === "approved";
-        if (wasApproved) {
-          lesson.status = "completed";
-        }
-
+      if (!roomEmpty) {
         await lesson.save();
-
-        if (wasApproved && student?._id) {
-          try {
-            await addPoints(student._id, 20, "Lesson completed via Zego session");
-          } catch (err) {
-            console.error("[Points] Failed to add points after Zego end:", err.message);
-          }
-        }
-
-        // ✅ If payment is already PAID → trigger payout automatically
-        try {
-          if (
-            lesson.paymentStatus === "paid" &&
-            teacher?.teacherProfile?.paymentInfo?.payoutRecipientId
-          ) {
-            console.log(
-              `🔁 Auto payout triggered from Zego webhook for lesson ${lesson._id}`
-            );
-            await _releasePaymentForLesson(lesson);
-          } else {
-            console.log(
-              `ℹ️ Lesson ${lesson._id} ended, but payment not ready for payout. paymentStatus=${lesson.paymentStatus}`
-            );
-          }
-        } catch (payoutErr) {
-          console.error(
-            "[Payout][ZegoWebhook] Failed to release payment:",
-            payoutErr.response?.data || payoutErr.message
-          );
-        }
-
-        await sendLessonNotification([teacher, student], {
-          titleEn: "✅ The lesson has ended",
-          titleAr: "✅ انتهت الحصة",
-          bodyEn: "The online lesson has finished successfully.",
-          bodyAr: "انتهت الحصة بنجاح.",
-          type: "lesson_ended",
-          lessonId: lesson._id,
-        });
-      } else {
-        await lesson.save();
+        break;
       }
+
+      // Room ended
+      lesson.meetingEndTime = eventDate;
+      lesson.meetingStatus = "finished";
+
+      const wasApproved = lesson.status === "approved";
+      if (wasApproved) {
+        lesson.status = "completed";
+      }
+
+      await lesson.save();
+
+      // 🎁 Student points
+      if (wasApproved && student?._id) {
+        try {
+          await addPoints(student._id, 20, "Lesson completed");
+        } catch (err) {
+          console.error("[Points][Zego]", err.message);
+        }
+      }
+
+      /* ============================
+         💸 AUTO PAYOUT (SAFE)
+      ============================ */
+      try {
+        if (
+          lesson.status === "completed" &&
+          lesson.paymentStatus === "paid" &&
+          lesson.paymentStatus !== "released"
+        ) {
+          console.log(
+            `[Zego] Auto payout triggered for lesson ${lesson._id}`
+          );
+          await _releasePaymentForLesson(lesson);
+        }
+      } catch (err) {
+        console.error(
+          "[Payout][Zego] Failed:",
+          err.response?.data || err.message
+        );
+      }
+
+      await sendLessonNotification([teacher, student], {
+        titleEn: "✅ The lesson has ended",
+        titleAr: "✅ انتهت الحصة",
+        bodyEn: "The lesson has finished successfully.",
+        bodyAr: "انتهت الحصة بنجاح.",
+        type: "lesson_ended",
+        lessonId: lesson._id,
+      });
 
       break;
     }
 
     default:
-      console.log("Unhandled Zego event:", event);
+      console.log("[Zego] Unhandled event:", event);
   }
 
-  res.status(200).json({ message: "Callback received successfully" });
+  res.status(200).json({ message: "Callback handled" });
 });
 
-// ===============================
-// Helper: Send Lesson Notifications
-// ===============================
+/* =====================================================
+   NOTIFICATION HELPER
+===================================================== */
+
 const sendLessonNotification = async (
   users,
   { titleEn, titleAr, bodyEn, bodyAr, type, lessonId }
@@ -168,8 +169,8 @@ const sendLessonNotification = async (
 
     try {
       await admin.messaging().send({
-        notification: { title, body },
         token,
+        notification: { title, body },
         data: {
           type,
           lessonId: lessonId.toString(),
@@ -183,7 +184,7 @@ const sendLessonNotification = async (
         message: body,
       });
     } catch (err) {
-      console.error("Error sending FCM:", err);
+      console.error("[FCM] Failed:", err.message);
     }
   }
 };

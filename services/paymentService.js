@@ -1,26 +1,24 @@
 const axios = require("axios");
 const crypto = require("crypto");
 const asyncHandler = require("express-async-handler");
+const { v4: uuidv4 } = require("uuid");
 
 const Lesson = require("../models/lessonModel");
 const ApiError = require("../utils/apiError");
 const { addPoints } = require("./pointsService");
 
-// ===============================
-// 🔧 CONSTANTS & BASIC VALIDATION
-// ===============================
+/* =====================================================
+   CONSTANTS
+===================================================== */
 
-// Lesson-level payment status (matches lessonSchema enum)
 const LESSON_PAYMENT_STATUS = {
   UNPAID: "unpaid",
   PENDING: "pending",
   PAID: "paid",
-  HELD: "held",
   RELEASED: "released",
   REFUNDED: "refunded",
 };
 
-// Gateway transaction-level status (matches paymentSchema.enum)
 const PAYMENT_STATUS = {
   PENDING: "pending",
   PAID: "paid",
@@ -29,485 +27,362 @@ const PAYMENT_STATUS = {
   REFUNDED: "refunded",
 };
 
-const PAYMOB_BASE = process.env.PAYMOB_API_URL || "https://accept.paymob.com/api";
+const PAYMOB_ACCEPT_BASE = process.env.PAYMOB_API_URL; // https://accept.paymob.com/api
+const PAYMOB_PAYOUTS_BASE = process.env.PAYMOB_PAYOUTS_BASE; // payouts env
 
-const PAYMOB_REQUIRED_ENV_VARS = [
-  "PAYMOB_API_URL",
-  "PAYMOB_API_KEY",
-  "PAYMOB_IFRAME_ID",
-  "PAYMOB_CARD_INTEGRATION_ID",
-  "PAYMOB_WALLET_INTEGRATION_ID",
-  "PAYMOB_HMAC_SECRET",
-];
+/* =====================================================
+   BANK NAME → BANK CODE MAP (Paymob)
+===================================================== */
 
-PAYMOB_REQUIRED_ENV_VARS.forEach((key) => {
-  if (!process.env[key]) {
-    console.error(`[Paymob][Config] Missing env var: ${key}`);
-  }
-});
+const BANK_CODE_MAP = {
+  "National Bank of Egypt": "NBE",
+  "Banque Misr": "MISR",
+  "Commercial International Bank": "CIB",
+  "Qatar National Bank": "QNB",
+  "Alex Bank": "BOA",
+  "HSBC": "HSBC",
+  "Arab African International Bank": "AAIB",
+  "Faisal Islamic Bank": "FAIB",
+  "Abu Dhabi Islamic Bank": "ADIB",
+};
 
-// ===============================
-// INTERNAL HELPER (used by route + other modules)
-// ===============================
+function resolveBankCode(bankName) {
+  return BANK_CODE_MAP[bankName] || bankName; // fallback لو مخزنة كـ CIB
+}
 
-/**
- * Internal helper to release payout to teacher via Paymob.
- * - Assumes lesson.paymentStatus === PAID and lesson.status === completed.
- * - Used by the route and can be reused from other controllers (e.g. Zego callback).
- */
+/* =====================================================
+   PAYMOB TOKEN HELPERS
+===================================================== */
+
+// Accept (card / wallet)
+async function getPaymobAcceptToken() {
+  const { data } = await axios.post(`${PAYMOB_ACCEPT_BASE}/auth/tokens`, {
+    api_key: process.env.PAYMOB_API_KEY,
+  });
+  return data.token;
+}
+
+// Payouts / Instant Cashin
+async function getPaymobPayoutsToken() {
+  const { data } = await axios.post(`${PAYMOB_PAYOUTS_BASE}/auth/tokens`, {
+    api_key: process.env.PAYMOB_PAYOUTS_API_KEY,
+  });
+  return data.token;
+}
+
+/* =====================================================
+   INTERNAL BUSINESS HELPER
+===================================================== */
+
 async function releasePaymentForLesson(lesson) {
-  // Ensure acceptedTeacher is populated
-  if (!lesson.populated || !lesson.populated("acceptedTeacher")) {
+  if (!lesson.acceptedTeacher) {
     lesson = await Lesson.findById(lesson._id).populate("acceptedTeacher");
-    if (!lesson) throw new Error("Lesson not found during payout");
   }
 
   if (!lesson.acceptedTeacher) {
-    throw new Error("No accepted teacher for this lesson");
+    throw new Error("No accepted teacher");
   }
 
-  // Idempotency: if already released, do nothing
+  // 🔒 Idempotency
   if (lesson.paymentStatus === LESSON_PAYMENT_STATUS.RELEASED) {
-    return {
-      alreadyReleased: true,
-      message: "Payment already released",
-    };
+    return { alreadyReleased: true };
   }
 
   if (lesson.paymentStatus !== LESSON_PAYMENT_STATUS.PAID) {
-    throw new Error("Payment is not in PAID state, cannot release payout");
+    throw new Error("Payment not in PAID state");
   }
 
   const teacher = lesson.acceptedTeacher;
-  const payoutRecipientId =
-    teacher?.teacherProfile?.paymentInfo?.payoutRecipientId;
+  const paymentInfo = teacher.teacherProfile?.paymentInfo;
 
-  if (!payoutRecipientId) {
-    throw new Error("Teacher has no payoutRecipientId");
+  if (!paymentInfo || !paymentInfo.method) {
+    throw new Error("Teacher payment info missing");
   }
 
-  // Fees configuration
-  const platformFeePercentage = 0.20; // 20% platform
-  const gatewayFeePercentage = 0.03; // 3% gateway
-  const totalFeePercentage = platformFeePercentage + gatewayFeePercentage;
+  /* =====================
+     FEES
+  ===================== */
+  const PLATFORM_FEE = 0.2;
+  const GATEWAY_FEE = 0.03;
 
   const totalAmount = lesson.price;
-  const teacherAmount = totalAmount * (1 - totalFeePercentage);
-  const platformFeeAmount = totalAmount * platformFeePercentage;
-  const gatewayFeeAmount = totalAmount * gatewayFeePercentage;
+  const teacherAmount = Number(
+    (totalAmount * (1 - PLATFORM_FEE - GATEWAY_FEE)).toFixed(2)
+  );
 
-  // 🔁 Call Paymob payout API
-  const { data: payout } = await axios.post(
-    `${PAYMOB_BASE}/acceptance/payout`,
-    {
-      amount: Math.round(teacherAmount * 100), // in cents
-      currency: "EGP",
-      recipient: payoutRecipientId,
-      description: `Payout for lesson ${lesson._id} (after fees)`,
-    },
+  /* =====================
+     client_reference (UUID)
+  ===================== */
+  const clientReference =
+    lesson.payment?.clientReference || uuidv4();
+
+  /* =====================
+     PAYMOB DISBURSE PAYLOAD
+  ===================== */
+  const payload = {
+    amount: teacherAmount,
+    national_id: teacher.nationalId || "00000000000000",
+    customer_bears_fees: false,
+    client_reference: clientReference,
+  };
+
+  if (paymentInfo.method === "wallet") {
+    payload.issuer = paymentInfo.walletProvider.toLowerCase();
+    payload.msisdn = paymentInfo.phoneNumber;
+  }
+
+  if (paymentInfo.method === "bank") {
+    payload.issuer = "bank_card";
+    payload.full_name = paymentInfo.accountName;
+    payload.bank_card_number = paymentInfo.accountNumber;
+    payload.bank_transaction_type = "cash_transfer";
+    payload.bank_code = resolveBankCode(paymentInfo.bankName);
+  }
+
+  /* =====================
+     CALL PAYMOB (PAYOUTS)
+  ===================== */
+  const payoutsToken = await getPaymobPayoutsToken();
+
+  const { data } = await axios.post(
+    `${PAYMOB_PAYOUTS_BASE}/disburse/`,
+    payload,
     {
       headers: {
-        Authorization: `Bearer ${process.env.PAYMOB_API_KEY}`,
+        Authorization: `Bearer ${payoutsToken}`,
         "Content-Type": "application/json",
       },
+      timeout: 20000,
     }
   );
 
-  // 💾 Update lesson with payout info
+  /* =====================
+     SAVE RESULT
+  ===================== */
   lesson.paymentStatus = LESSON_PAYMENT_STATUS.RELEASED;
-  lesson.teacherPayoutId = payout.id;
-  lesson.payment = {
-    ...lesson.payment,
-    amount: totalAmount,
-    status: PAYMENT_STATUS.RELEASED,
-  };
   lesson.amountPaid = teacherAmount;
 
-  // Optional: requires 'fees' field in Lesson schema if you want to persist it
-  lesson.fees = {
-    platform: platformFeeAmount,
-    gateway: gatewayFeeAmount,
+  lesson.payment = {
+    ...lesson.payment,
+    status: PAYMENT_STATUS.RELEASED,
+    disburseTransactionId: data.transaction_id || null,
+    disbursementStatus: data.disbursement_status || null,
+    disbursementCode: data.status_code || null,
+    disbursementDescription: data.status_description || null,
+    clientReference,
   };
 
   await lesson.save();
 
-  console.log(
-    `✅ Payout released | lesson=${lesson._id} | teacher=${teacher._id} | amount=${teacherAmount} EGP`
-  );
-
   return {
-    payoutId: payout.id,
-    totalAmount,
+    transactionId: data.transaction_id,
     teacherAmount,
-    platformFee: platformFeeAmount,
-    gatewayFee: gatewayFeeAmount,
   };
 }
 
-// Export helper so other modules (e.g. Zego callbacks) can reuse it if needed
 exports._releasePaymentForLesson = releasePaymentForLesson;
 
-// ===============================
-// 1️⃣ INITIATE PAYMENT
-// ===============================
-// @route   POST /payments/lessons/:lessonId/initiate
-// @access  Private (student)
+/* =====================================================
+   1️⃣ INITIATE PAYMENT (STUDENT)
+===================================================== */
+
 exports.initiatePayment = asyncHandler(async (req, res, next) => {
   const { lessonId } = req.params;
   const { paymentMethod = "card", walletPhone, walletProvider } = req.body;
 
   const lesson = await Lesson.findById(lessonId).populate("student");
-  if (!lesson) throw new ApiError("Lesson not found", 404);
+  if (!lesson) return next(new ApiError("Lesson not found", 404));
 
-  // Only the lesson owner (student) can pay for it
   if (lesson.student._id.toString() !== req.user._id.toString()) {
-    throw new ApiError("You are not allowed to pay for this lesson", 403);
+    return next(new ApiError("Not allowed", 403));
   }
 
-  // Check payment status / lesson status
-  if (
-    lesson.paymentStatus === LESSON_PAYMENT_STATUS.PAID ||
-    lesson.paymentStatus === LESSON_PAYMENT_STATUS.RELEASED
-  ) {
-    throw new ApiError("Lesson is already paid or released", 400);
+  if (lesson.paymentStatus !== LESSON_PAYMENT_STATUS.UNPAID) {
+    return next(new ApiError("Lesson already paid", 400));
   }
 
-  if (lesson.status === "canceled") {
-    throw new ApiError("Cannot pay for a canceled lesson", 400);
-  }
-
-  // ✅ Validate payment method
   if (!["card", "wallet"].includes(paymentMethod)) {
-    throw new ApiError("Invalid payment method", 400);
+    return next(new ApiError("Invalid payment method", 400));
   }
 
-  // Wallet-specific validation
   if (paymentMethod === "wallet" && !walletPhone) {
-    throw new ApiError("walletPhone is required for wallet payments", 400);
+    return next(new ApiError("walletPhone required", 400));
   }
 
   const amountCents = Math.round(lesson.price * 100);
-  let paymentLink = null;
-  let redirectUrl = null;
 
   try {
-    // 1️⃣ Auth token
-    const { data: auth } = await axios.post(`${PAYMOB_BASE}/auth/tokens`, {
-      api_key: process.env.PAYMOB_API_KEY,
-    });
+    const token = await getPaymobAcceptToken();
 
-    // 2️⃣ Create order
     const { data: order } = await axios.post(
-      `${PAYMOB_BASE}/ecommerce/orders`,
+      `${PAYMOB_ACCEPT_BASE}/ecommerce/orders`,
       {
-        auth_token: auth.token,
+        auth_token: token,
         amount_cents: amountCents,
         currency: "EGP",
         merchant_order_id: lesson._id.toString(),
       }
     );
 
-    // 3️⃣ Payment key
     const integrationId =
       paymentMethod === "wallet"
         ? process.env.PAYMOB_WALLET_INTEGRATION_ID
         : process.env.PAYMOB_CARD_INTEGRATION_ID;
 
     const { data: paymentKey } = await axios.post(
-      `${PAYMOB_BASE}/acceptance/payment_keys`,
+      `${PAYMOB_ACCEPT_BASE}/acceptance/payment_keys`,
       {
-        auth_token: auth.token,
+        auth_token: token,
         amount_cents: amountCents,
-        expiration: 3600,
         order_id: order.id,
+        currency: "EGP",
+        integration_id: integrationId,
         billing_data: {
-          apartment: "NA",
           email: lesson.student.email,
-          floor: "NA",
-          first_name: lesson.student.firstName || "Student",
-          last_name: lesson.student.lastName || "User",
-          phone_number: lesson.student.phone || walletPhone || "NA",
+          first_name: lesson.student.firstName,
+          last_name: lesson.student.lastName,
+          phone_number: walletPhone || lesson.student.phone || "NA",
           city: "Cairo",
           country: "EG",
           street: "NA",
           building: "NA",
-          shipping_method: "NA",
+          floor: "NA",
+          apartment: "NA",
           postal_code: "NA",
           state: "NA",
         },
-        currency: "EGP",
-        integration_id: integrationId,
       }
     );
-
-    // 4️⃣ Card flow → IFrame link
-    if (paymentMethod === "card") {
-      paymentLink = `https://accept.paymob.com/api/acceptance/iframes/${process.env.PAYMOB_IFRAME_ID}?payment_token=${paymentKey.token}`;
-    }
-
-    // 5️⃣ Wallet flow → call Paymob pay endpoint
-    if (paymentMethod === "wallet") {
-      const { data: walletRes } = await axios.post(
-        `${PAYMOB_BASE}/acceptance/payments/pay`,
-        {
-          source: {
-            identifier: walletPhone,
-            // Adjust subtype according to your Paymob wallet configuration
-            subtype: walletProvider || "WALLET",
-          },
-          payment_token: paymentKey.token,
-        }
-      );
-
-      // Paymob may return a redirect_url for wallet confirmation
-      redirectUrl = walletRes.redirect_url || null;
-
-      // Optionally store transaction id from walletRes if available
-      if (walletRes.id) {
-        lesson.payment = {
-          ...lesson.payment,
-          transactionId: walletRes.id,
-        };
-      }
-    }
-
-    // 💾 Save payment info on lesson
-    lesson.payment = {
-      ...lesson.payment,
-      amount: amountCents / 100,
-      paymobOrderId: order.id,
-      status: PAYMENT_STATUS.PENDING,
-      method: paymentMethod,
-      walletPhone: paymentMethod === "wallet" ? walletPhone : null,
-      walletProvider: paymentMethod === "wallet" ? walletProvider || null : null,
-    };
 
     lesson.paymentStatus = LESSON_PAYMENT_STATUS.PENDING;
+    lesson.payment = {
+      amount: lesson.price,
+      status: PAYMENT_STATUS.PENDING,
+      paymobOrderId: order.id,
+      method: paymentMethod,
+    };
 
     await lesson.save();
-  } catch (err) {
-    console.error(
-      "❌ Paymob payment initiation failed:",
-      err.response?.data || err.message
+
+    if (paymentMethod === "card") {
+      return res.status(200).json({
+        paymentLink: `https://accept.paymob.com/api/acceptance/iframes/${process.env.PAYMOB_IFRAME_ID}?payment_token=${paymentKey.token}`,
+      });
+    }
+
+    const { data: walletRes } = await axios.post(
+      `${PAYMOB_ACCEPT_BASE}/acceptance/payments/pay`,
+      {
+        source: {
+          identifier: walletPhone,
+          subtype: walletProvider || "WALLET",
+        },
+        payment_token: paymentKey.token,
+      }
     );
-    return next(new ApiError("Failed to initiate payment", 500));
-  }
 
-  return res.status(200).json({
-    status: "success",
-    paymentMethod,
-    paymentLink, // for card payments
-    redirectUrl, // for wallet payments (if provided by Paymob)
-  });
-});
-
-// ===============================
-// 2️⃣ HANDLE PAYMOB CALLBACK (WEBHOOK)
-// ===============================
-// @route   POST /payments/paymob/callback
-// @access  Public (must be protected by IP/firewall on infra level)
-exports.handlePaymentCallback = asyncHandler(async (req, res) => {
-  try {
-    const { obj, hmac } = req.body;
-
-    if (!obj || !hmac) {
-      return res.status(400).json({ message: "Invalid callback payload" });
-    }
-
-    // Keys and order based on Paymob docs
-    const sortedKeys = [
-      "amount_cents",
-      "created_at",
-      "currency",
-      "error_occured",
-      "has_parent_transaction",
-      "id",
-      "integration_id",
-      "is_3d_secure",
-      "is_auth",
-      "is_capture",
-      "is_refunded",
-      "is_standalone_payment",
-      "is_voided",
-      "order.id",
-      "owner",
-      "pending",
-      "source_data.pan",
-      "source_data.sub_type",
-      "source_data.type",
-      "success",
-    ];
-
-    const concatenatedString = sortedKeys
-      .map((key) => {
-        const keys = key.split(".");
-        let value = obj;
-        keys.forEach((k) => {
-          value = value ? value[k] : undefined;
-        });
-        // Preserve false/0 – only null/undefined become empty string
-        return value === null || value === undefined ? "" : value.toString();
-      })
-      .join("");
-
-    const calculatedHmac = crypto
-      .createHmac("sha512", process.env.PAYMOB_HMAC_SECRET)
-      .update(concatenatedString)
-      .digest("hex");
-
-    if (calculatedHmac !== hmac) {
-      console.error("[Paymob][Callback] HMAC mismatch");
-      return res.status(400).json({ message: "Invalid HMAC signature" });
-    }
-
-    const lessonId = obj.order?.merchant_order_id;
-    if (!lessonId) {
-      return res.status(400).json({ message: "Missing merchant_order_id" });
-    }
-
-    const lesson = await Lesson.findById(lessonId).populate("student");
-    if (!lesson) {
-      return res.status(404).json({ message: "Lesson not found" });
-    }
-
-    // Validate amount to prevent tampering
-    const expectedAmountCents = Math.round(lesson.price * 100);
-    const receivedAmountCents = parseInt(obj.amount_cents, 10);
-
-    if (receivedAmountCents !== expectedAmountCents) {
-      console.error(
-        "[Paymob][Callback] Amount mismatch",
-        receivedAmountCents,
-        "!==",
-        expectedAmountCents
-      );
-      return res.status(400).json({ message: "Amount mismatch" });
-    }
-
-    // Optional: verify order.id matches paymobOrderId we stored
-    if (
-      lesson.payment?.paymobOrderId &&
-      obj.order?.id &&
-      String(obj.order.id) !== String(lesson.payment.paymobOrderId)
-    ) {
-      console.error(
-        "[Paymob][Callback] Order ID mismatch",
-        obj.order.id,
-        "!=",
-        lesson.payment.paymobOrderId
-      );
-      return res.status(400).json({ message: "Order ID mismatch" });
-    }
-
-    const isSuccess = !!obj.success;
-
-    if (isSuccess) {
-      // Idempotency: if already marked as paid or released, just acknowledge
-      if (
-        lesson.paymentStatus === LESSON_PAYMENT_STATUS.PAID ||
-        lesson.paymentStatus === LESSON_PAYMENT_STATUS.RELEASED
-      ) {
-        return res
-          .status(200)
-          .json({ message: "Payment already processed previously" });
-      }
-
-      // Mark as paid
-      lesson.paymentStatus = LESSON_PAYMENT_STATUS.PAID;
-      lesson.status = "approved"; // adjust based on your business rules
-
-      lesson.payment = {
-        ...lesson.payment,
-        status: PAYMENT_STATUS.PAID,
-        transactionId: obj.id,
-      };
-
-      await lesson.save();
-
-      // Add points for booking (non-critical: don't fail payment if this throws)
-      if (lesson?.student?._id) {
-        try {
-          await addPoints(
-            lesson.student._id,
-            10,
-            "Lesson booked successfully"
-          );
-        } catch (pointsErr) {
-          console.error(
-            "[Points] Failed to add points after successful payment:",
-            pointsErr.message
-          );
-        }
-      }
-    } else {
-      // Payment failed – update transaction status but keep lessonPaymentStatus consistent
-      lesson.paymentStatus = LESSON_PAYMENT_STATUS.UNPAID;
-      lesson.payment = {
-        ...lesson.payment,
-        status: PAYMENT_STATUS.FAILED,
-      };
-      await lesson.save();
-    }
-
-    res.status(200).json({ message: "Callback processed successfully" });
+    res.status(200).json({
+      redirectUrl: walletRes.redirect_url,
+    });
   } catch (err) {
-    console.error("[Paymob][Callback] Error processing callback:", err);
-    res.status(500).json({ message: "Error processing callback" });
+    console.error("[Paymob][Initiate]", err.response?.data || err.message);
+    return next(new ApiError("Payment initiation failed", 500));
   }
 });
 
-// ===============================
-// 3️⃣ RELEASE PAYMENT TO TEACHER
-// ===============================
-// @route   POST /payments/lessons/:lessonId/release
-// @access  Private (admin/system)
-// Make sure route is protected with allowedTo('admin') or internal system auth.
+/* =====================================================
+   2️⃣ PAYMOB CALLBACK
+===================================================== */
+
+exports.handlePaymentCallback = asyncHandler(async (req, res) => {
+  const { obj, hmac } = req.body;
+  if (!obj || !hmac) return res.sendStatus(400);
+
+  const keys = [
+    "amount_cents",
+    "created_at",
+    "currency",
+    "error_occured",
+    "has_parent_transaction",
+    "id",
+    "integration_id",
+    "is_auth",
+    "is_capture",
+    "is_refunded",
+    "is_standalone_payment",
+    "is_voided",
+    "order.id",
+    "pending",
+    "source_data.pan",
+    "source_data.sub_type",
+    "source_data.type",
+    "success",
+  ];
+
+  const concatenated = keys
+    .map((k) =>
+      k.split(".").reduce((o, i) => (o ? o[i] : ""), obj) ?? ""
+    )
+    .join("");
+
+  const calculated = crypto
+    .createHmac("sha512", process.env.PAYMOB_HMAC_SECRET)
+    .update(concatenated)
+    .digest("hex");
+
+  if (calculated !== hmac) return res.sendStatus(400);
+
+  const lesson = await Lesson.findById(obj.order.merchant_order_id);
+  if (!lesson) return res.sendStatus(404);
+
+  if (obj.success) {
+    if (lesson.paymentStatus !== LESSON_PAYMENT_STATUS.PAID) {
+      lesson.paymentStatus = LESSON_PAYMENT_STATUS.PAID;
+      lesson.payment.status = PAYMENT_STATUS.PAID;
+      lesson.payment.transactionId = obj.id;
+      await lesson.save();
+
+      try {
+        await addPoints(lesson.student, 10, "Lesson payment");
+      } catch (_) {}
+    }
+  } else {
+    lesson.paymentStatus = LESSON_PAYMENT_STATUS.UNPAID;
+    lesson.payment.status = PAYMENT_STATUS.FAILED;
+    await lesson.save();
+  }
+
+  res.sendStatus(200);
+});
+
+/* =====================================================
+   3️⃣ RELEASE PAYMENT (ADMIN / SYSTEM)
+===================================================== */
+
 exports.releasePaymentToTeacher = asyncHandler(async (req, res, next) => {
   const { lessonId } = req.params;
 
-  let lesson = await Lesson.findById(lessonId).populate("acceptedTeacher");
-  if (!lesson) {
-    return next(new ApiError("Lesson not found", 404));
-  }
+  const lesson = await Lesson.findById(lessonId).populate("acceptedTeacher");
+  if (!lesson) return next(new ApiError("Lesson not found", 404));
 
-  // Business rule: lesson must be completed to trigger payout
   if (lesson.status !== "completed") {
-    return next(
-      new ApiError("Lesson must be completed before payout", 400)
-    );
-  }
-
-  // Idempotency: if already released
-  if (lesson.paymentStatus === LESSON_PAYMENT_STATUS.RELEASED) {
-    return next(new ApiError("Payment already released", 400));
-  }
-
-  // Payment must be received from Paymob first
-  if (lesson.paymentStatus !== LESSON_PAYMENT_STATUS.PAID) {
-    return next(new ApiError("Payment not received yet", 400));
+    return next(new ApiError("Lesson not completed", 400));
   }
 
   try {
     const result = await releasePaymentForLesson(lesson);
 
     if (result.alreadyReleased) {
-      return res.status(200).json({
-        message: result.message,
-      });
+      return res.status(200).json({ message: "Already released" });
     }
 
     res.status(200).json({
-      message: "Payment released to teacher successfully",
-      payoutId: result.payoutId,
-      details: {
-        totalAmount: result.totalAmount,
-        teacherAmount: result.teacherAmount,
-        platformFee: result.platformFee,
-        gatewayFee: result.gatewayFee,
-      },
+      message: "Payment released successfully",
+      transactionId: result.transactionId,
+      teacherAmount: result.teacherAmount,
     });
   } catch (err) {
-    console.error("[Paymob][Payout] Error:", err.response?.data || err.message);
-    return next(new ApiError("Failed to release payment to teacher", 500));
+    console.error("[Paymob][Release]", err.message);
+    return next(new ApiError("Failed to release payment", 500));
   }
 });

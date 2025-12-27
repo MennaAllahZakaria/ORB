@@ -1,19 +1,21 @@
 const mongoose = require("mongoose");
 
+/* =========================
+   PAYMENT SUBSCHEMA
+========================= */
 const paymentSchema = new mongoose.Schema(
   {
-    amount: {
-      type: Number,
-      default: 0,
-    },
-    paymobOrderId: {
-      type: String,
-      default: null,
-    },
-    transactionId: {
-      type: String,
-      default: null,
-    },
+    amount: Number,
+    paymobOrderId: String,
+    transactionId: String,
+
+    // 💸 Disbursement
+    disburseTransactionId: String,
+    disbursementStatus: String,
+    disbursementCode: String,
+    disbursementDescription: String,
+    clientReference: String,
+
     status: {
       type: String,
       enum: ["pending", "paid", "failed", "released", "refunded"],
@@ -23,31 +25,36 @@ const paymentSchema = new mongoose.Schema(
   { _id: false }
 );
 
+
+/* =========================
+   LESSON SCHEMA
+========================= */
 const lessonSchema = new mongoose.Schema(
   {
     student: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: [true, "student id required"],
+      required: true,
     },
 
     title: {
       type: String,
-      required: [true, "title required"],
+      required: true,
     },
 
     subject: {
       type: String,
-      required: [true, "subject required"],
+      required: true,
     },
 
     price: {
       type: Number,
-      required: [true, "price required"],
+      required: true,
     },
+
     offers: [
       {
-        teacher: { type: mongoose.Schema.ObjectId, ref: "User" },
+        teacher: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
         proposedPrice: Number,
         message: String,
         createdAt: { type: Date, default: Date.now },
@@ -56,15 +63,17 @@ const lessonSchema = new mongoose.Schema(
 
     requestedDate: {
       type: Date,
-      required: [true, "requestedDate required"],
+      required: true,
     },
 
     durationInMinutes: {
       type: Number,
-      required: [true, "durationInMinutes required"],
+      required: true,
     },
 
-    // Lesson lifecycle status
+    /* =====================
+       LESSON STATUS
+    ===================== */
     status: {
       type: String,
       enum: ["pending", "approved", "completed", "canceled"],
@@ -83,73 +92,69 @@ const lessonSchema = new mongoose.Schema(
       ref: "User",
     },
 
-    // 💳 Payment info
+    /* =====================
+       PAYMENT STATUS (HIGH LEVEL)
+    ===================== */
     paymentStatus: {
       type: String,
-      enum: ["unpaid", "pending", "paid", "failed", "held", "released", "refunded"],
+      enum: ["unpaid", "pending", "paid", "released", "refunded"],
       default: "unpaid",
     },
 
-    payment: paymentSchema, // nested payment object
+    payment: paymentSchema,
 
     amountPaid: {
       type: Number,
-      default: 0,
+      default: 0, // net amount sent to teacher
     },
 
-    teacherPayoutId: {
-      type: String,
-      default: null, // ID for payout transaction (when released)
-    },
-
-    // 💸 Fee breakdown (platform + gateway)
+    /* =====================
+       FEES
+    ===================== */
     fees: {
-      platform: {
-        type: Number,
-        default: 0,
-      },
-      gateway: {
-        type: Number,
-        default: 0,
-      },
+      platform: { type: Number, default: 0 },
+      gateway: { type: Number, default: 0 },
     },
 
-    // 🎥 ZegoCloud (Online Meeting)
+    /* =====================
+       ZEGO MEETING
+    ===================== */
     meetingRoomId: {
       type: String,
-      default: null, // Unique room ID from ZegoCloud
+      default: null,
     },
+
     meetingStatus: {
       type: String,
       enum: ["upcoming", "ongoing", "finished", "canceled"],
       default: "upcoming",
     },
+
     meetingStartTime: {
       type: Date,
       default: null,
     },
+
     meetingEndTime: {
       type: Date,
       default: null,
     },
+
     zegoTokenForStudent: {
       type: String,
       default: null,
     },
+
     zegoTokenForTeacher: {
       type: String,
       default: null,
     },
+
     activeParticipants: {
-      type: [String], 
+      type: [String],
       default: [],
     },
 
-
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
     requestType: {
       type: String,
       enum: ["open", "direct"],
@@ -159,7 +164,9 @@ const lessonSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Virtual field to calculate actual meeting duration in minutes
+/* =========================
+   VIRTUALS
+========================= */
 lessonSchema.virtual("durationMinutes").get(function () {
   if (this.meetingStartTime && this.meetingEndTime) {
     const diff = (this.meetingEndTime - this.meetingStartTime) / 1000 / 60;
