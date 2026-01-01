@@ -32,6 +32,13 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
     );
   }
 
+  if ( new Date(requestedDate)<new Date()) {
+    return next(
+      new ApiError("requestedDate must be in the future", 400)
+    );
+  }
+
+
   // Determine request type: direct (specific teacher) or open
   const requestType = teacherId ? "direct" : "open";
 
@@ -191,7 +198,8 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
   const lessons = await Lesson.find({
     subject: { $in: teacher.teacherProfile.subjects },
     status: "pending",
-  }).populate("student", "firstName lastName email studentProfile");
+  }).populate("student", "firstName lastName email studentProfile")
+    .sort({ createdAt: -1 });
 
   res.status(200).json({
     status: "success",

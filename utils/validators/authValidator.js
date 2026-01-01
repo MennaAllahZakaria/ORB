@@ -20,6 +20,11 @@ exports.signupValidator = [
         .isEmail()
         .withMessage("Invalid email format"),
 
+    check("gender")
+        .optional()
+        .isIn(["male", "female"])
+        .withMessage("Invalid gender"), 
+
     check("password")
         .notEmpty()
         .withMessage("Password is required")
@@ -46,6 +51,19 @@ exports.signupValidator = [
         .if(check("role").equals("teacher"))
         .notEmpty()
         .withMessage("Subjects are required for teacher"),
+    check("teacherProfile.education_system")
+        .if(check("role").equals("teacher"))
+        .notEmpty()
+        .withMessage("Education system is required for teacher")
+        .isIn(["National", "American", "British","International", "Other"])
+        .withMessage("Invalid education system"),
+    check("teacherProfile.academic_stages")
+        .if(check("role").equals("teacher"))
+        .notEmpty()
+        .withMessage("Academic stages are required for teacher")
+        .isArray({ min: 1 })
+        .withMessage("At least one academic stage must be specified for teacher"),
+
     // check("certificate")
     //     .if(check("role").equals("teacher"))
     //     .notEmpty()
@@ -57,6 +75,12 @@ exports.signupValidator = [
         .if(check("role").equals("student"))
         .notEmpty()
         .withMessage("Grade is required for student"),
+    check("studentProfile.education_system")
+        .if(check("role").equals("student"))
+        .notEmpty()
+        .withMessage("Education system is required for student")
+        .isIn(["National", "American", "British","International", "Other"])
+        .withMessage("Invalid education system"),
 
     validatorMiddleware,
 ];

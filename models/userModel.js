@@ -21,6 +21,26 @@ const paymentInfoSchema = new mongoose.Schema(
 // 📦 Subschema for teacher profile
 const teacherProfileSchema = new mongoose.Schema(
   {
+    education_system: {
+      type: String,
+      enum: ["National", "American", "British","International", "Other"],
+    },
+    academic_stages: {
+      type: [String],
+      required: true,
+      enum: [
+        "KG",
+        "Primary",
+        "Preparatory",
+        "Secondary",
+        "University",
+        "Other",
+      ],
+    },
+    school: {
+      type: String,
+      required: false,
+    },
     subjects: {
       type: [String],
       required: true,
@@ -62,6 +82,10 @@ const teacherProfileSchema = new mongoose.Schema(
 // 📦 Subschema for student profile
 const studentProfileSchema = new mongoose.Schema(
   {
+    education_system: {
+      type: String,
+      enum: ["National", "American", "British","International", "Other"],
+    },
     grade: {
       type: String,
       enum: [
@@ -100,6 +124,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
       required: [true, "lastName required"],
+    },
+    gender: {
+      type: String,
+      enum: ["male", "female"],
+      default: "male",
     },
     email: {
       type: String,
