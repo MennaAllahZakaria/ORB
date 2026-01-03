@@ -56,14 +56,14 @@ router.put(
 router.put(
     "/:id/close",
     protect,
-    allowedTo("student", "teacher"),
+    allowedTo("admin"),
     closeSupportRequest
 );
 // ================= USER - REOPEN SUPPORT REQUEST =================
 router.put(
     "/:id/reopen",
     protect,
-    allowedTo("student", "teacher"),
+    allowedTo("admin"),
     reopenSupportRequest
 );
 module.exports = router;
