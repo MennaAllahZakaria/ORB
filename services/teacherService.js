@@ -309,8 +309,10 @@ exports.getTeacher = asyncHandler(async (req, res, next) => {
 
   res.status(200).json({
     status: "success",
-    data: teacher,
-    reviews,
+    data: [
+          teacher,
+          reviews
+        ],
   });
 });
 

@@ -16,7 +16,8 @@ const {
     rejectTeacher,
     getAllStudents,
     getStudent,
-    deleteStudent
+    deleteStudent,
+    getLessonsWithIssues,
 } = require("../services/adminService");
 
 const { protect , allowedTo } = require("../middleware/authMiddleware");
@@ -73,4 +74,8 @@ router.get("/students/all", getAllStudents);
 router.get("/students/:id", idValidator, getStudent);
 // 📌 Delete student
 router.delete("/students/:id", idValidator, deleteStudent);
+
+//=======================Lessons with Issues=========================
+// 📌 Get lessons with issues
+router.get("/lessons/issues", getLessonsWithIssues);
 module.exports = router;

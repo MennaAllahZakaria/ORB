@@ -2,6 +2,7 @@ const bcrypt = require("bcrypt");
 const asyncHandler = require("express-async-handler");
 
 const User = require("../models/userModel");
+const Lesson = require("../models/lessonModel");
 const sendEmail = require("../utils/sendEmail");
 const ApiError = require("../utils/apiError");
 const HandlerFactory = require("./handlerFactory");
@@ -460,5 +461,23 @@ exports.deleteStudent = asyncHandler(async (req, res, next) => {
   res.status(200).json({
     status: "success",
     message: "Student deleted successfully",
+  });
+});
+
+
+/* =========================
+   lesson with essue 
+========================= */
+
+exports.getLessonsWithIssues = asyncHandler(async (req, res, next) => {
+  const lessons = await Lesson.find({ completion: "incomplete" })
+  .populate('student', 'firstName lastName email')
+  .populate('acceptedTeacher', 'firstName lastName email')
+  .select('title subject price requestedDate durationInMinutes status paymentStatus completion reason_for_incomplete');
+
+  res.status(200).json({
+    status: "success",
+    results: lessons.length,
+    data: lessons,
   });
 });

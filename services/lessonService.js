@@ -22,7 +22,7 @@ const isSameId = (a, b) =>
 // 1️⃣ STUDENT - CREATE LESSON REQUEST
 // =======================================================
 exports.createLessonRequest = asyncHandler(async (req, res, next) => {
-  const { subject, requestedDate, durationInMinutes, price, teacherId, title } =
+  const { subject, requestedDate, durationInMinutes, price, title } =
     req.body;
 
   // Basic validation (can be extended)
@@ -39,9 +39,6 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
   }
 
 
-  // Determine request type: direct (specific teacher) or open
-  const requestType = teacherId ? "direct" : "open";
-
   // Build lesson payload explicitly (avoid using req.body directly)
   const lessonPayload = {
     student: req.user._id,
@@ -50,7 +47,6 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
     requestedDate,
     durationInMinutes,
     price,
-    requestType,
     meetingStatus: "upcoming",
     meetingRoomId: null,
     zegoTokenForStudent: null,
@@ -61,19 +57,9 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
 
   let teachers = [];
 
-  // 🎯 Direct request to a specific teacher
-  if (teacherId) {
-    const teacher = await User.findById(teacherId);
-    if (!teacher || teacher.role !== "teacher") {
-      return next(new ApiError("Teacher not found", 404));
-    }
+  
 
-    teachers = [teacher];
-
-    // Optionally mark this teacher as interested by default
-    lesson.interestedTeachers.push(teacher._id);
-    await lesson.save();
-  } else {
+ 
     // 🎯 Open request – find matching teachers by subject and price range
     const requested = new Date(requestedDate);
 
@@ -96,7 +82,10 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
         calculatedLessonPrice >= minPrice &&
         calculatedLessonPrice <= maxPrice
       );
-    });
+    });  
+  // If no matching teachers found
+  if (teachers.length === 0) {
+    teachers = allTeachers;
   }
 
   // 🔔 Send notifications to matching teachers (FCM or email)
@@ -169,10 +158,7 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
 
   res.status(201).json({
     status: "success",
-    message:
-      requestType === "direct"
-        ? "Lesson request sent to the selected teacher."
-        : "Lesson request sent to all matching teachers.",
+    message: "Lesson request sent to all matching teachers.",
     data: lesson,
   });
 });
@@ -693,6 +679,12 @@ exports.getLessons = asyncHandler(async (req, res, next) => {
 // =======================================================
 exports.completeLesson = asyncHandler(async (req, res, next) => {
   const { lessonId } = req.params;
+  const {completion , reason_for_incomplete} = req.body;
+
+  if(completion !== "completed" && completion !== "incomplete"){
+    return next(new ApiError("completion must be either 'completed' or 'incomplete'", 400));
+  }
+
 
   const lesson = await Lesson.findById(lessonId);
   if (!lesson) return next(new ApiError("Lesson not found", 404));
@@ -713,12 +705,15 @@ exports.completeLesson = asyncHandler(async (req, res, next) => {
       new ApiError("Lesson cannot be completed at its current status", 400)
     );
   }
+  lesson.completion = completion;
+  if(completion === "incomplete"){
+    lesson.reason_for_incomplete = reason_for_incomplete;
+  }
 
-  lesson.status = "completed";
   await lesson.save();
 
   // Add points to student
-  if (lesson.student) {
+  if (lesson.student && completion === "completed") {
     await addPoints(lesson.student, 20, "Lesson completed");
   }
 

@@ -155,11 +155,18 @@ const lessonSchema = new mongoose.Schema(
       default: [],
     },
 
-    requestType: {
+    // lesson completion 
+    completion: {
       type: String,
-      enum: ["open", "direct"],
-      required: true,
+      enum : ["completed", "incomplete"],
+      default: null,
     },
+    reason_for_incomplete: {
+      type: String,
+      enum : ["no_show_student","no_show_tyeacher ", "technical_issues_by_stydent", "technical_issues_by_teacher", "canceled_by_agreement", "other"],
+      default: null,
+    },
+
   },
   { timestamps: true }
 );
