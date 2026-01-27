@@ -447,3 +447,25 @@ exports.updateFcmToken = asyncHandler(async (req, res, next) => {
     message: "FCM Token updated successfully.",
   });
 });
+
+exports.updatePreferredLanguage = asyncHandler(async (req, res, next) => {
+  const { preferredLanguage } = req.body;
+  const supportedLanguages = ["en", "ar"]; 
+
+  if (!preferredLanguage || !supportedLanguages.includes(preferredLanguage)) {
+    return next(new ApiError("Preferred language is invalid", 400));
+  }
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    { preferredLang: preferredLanguage },
+    { new: true }
+  );
+  if (!user) {
+    return next(new ApiError("User not found", 404));
+  } 
+  res.status(200).json({
+    status: "success",
+    message: "Preferred language updated successfully.",
+    preferredLanguage: user.preferredLang,
+  });
+});

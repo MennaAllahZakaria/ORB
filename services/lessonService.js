@@ -657,7 +657,6 @@ exports.getLessons = asyncHandler(async (req, res, next) => {
     req.query
   )
     .filter()
-    // NOTE: make sure the search() implementation matches this key
     .search("lessonModel")
     .sort()
     .limitFields()

@@ -7,7 +7,8 @@ const {
     verifyForgotPasswordCode,
     resetPassword,
     updateFcmToken,
-    changePassword
+    changePassword,
+    updatePreferredLanguage
 } = require("../services/authService");
 
 const {
@@ -54,4 +55,6 @@ router.post("/updateFcmToken",protect, updateFcmToken);
 // ================= CHANGE PASSWORD =================
 router.put("/changePassword",protect, changePasswordValidator, changePassword);
 
+// ================= UPDATE PREFERRED LANGUAGE =================
+router.patch("/updatePreferredLanguage",protect, updatePreferredLanguage);
 module.exports = router;
