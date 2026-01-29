@@ -84,28 +84,9 @@ const studentProfileSchema = new mongoose.Schema(
   {
     education_system: {
       type: String,
-      enum: ["National", "American", "British","International", "Other"],
     },
     grade: {
       type: String,
-      enum: [
-        "KG1",
-        "KG2",
-        "Grade 1",
-        "Grade 2",
-        "Grade 3",
-        "Grade 4",
-        "Grade 5",
-        "Grade 6",
-        "Grade 7 (Preparatory 1)",
-        "Grade 8 (Preparatory 2)",
-        "Grade 9 (Preparatory 3)",
-        "Grade 10 (Secondary 1)",
-        "Grade 11 (Secondary 2)",
-        "Grade 12 (Secondary 3)",
-        "University",
-        "Other",
-      ],
     },
     school: String,
   },

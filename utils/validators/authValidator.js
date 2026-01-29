@@ -54,9 +54,7 @@ exports.signupValidator = [
     check("teacherProfile.education_system")
         .if(check("role").equals("teacher"))
         .notEmpty()
-        .withMessage("Education system is required for teacher")
-        .isIn(["National", "American", "British","International", "Other"])
-        .withMessage("Invalid education system"),
+        .withMessage("Education system is required for teacher"),
     check("teacherProfile.academic_stages")
         .if(check("role").equals("teacher"))
         .notEmpty()
@@ -78,9 +76,7 @@ exports.signupValidator = [
     check("studentProfile.education_system")
         .if(check("role").equals("student"))
         .notEmpty()
-        .withMessage("Education system is required for student")
-        .isIn(["National", "American", "British","International", "Other"])
-        .withMessage("Invalid education system"),
+        .withMessage("Education system is required for student"),
 
     validatorMiddleware,
 ];
