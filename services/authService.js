@@ -190,6 +190,50 @@ exports.verifyEmailUser = asyncHandler(async (req, res, next) => {
   });
 });
 
+exports.resendVerificationCode = asyncHandler(async (req, res, next) => {
+  const { email } = req.body;
+  if (!email) {
+    return next(new ApiError("Email is required", 400));
+  }
+  const existingVerification = await Verification.findOne({
+    email,
+    type: "emailVerification",
+  });
+  if (!existingVerification) {
+    return next(new ApiError("No verification request found for this email", 400));
+  }
+  await Verification.deleteOne({ _id: existingVerification._id });
+  const verificationCode = generateSixDigitCode();
+  const expirationTime = Date.now() + 10 * 60 * 1000;
+  const hashedCode = await bcrypt.hash(verificationCode, 12);
+  const message = `
+                  Your verification code is:
+                  ${verificationCode}
+                  (valid for 10 minutes)
+                  `;
+  try {
+    await sendEmail({
+      Email: email,
+      subject: "Email Verification Code - Resent",
+      message,
+    });
+    await Verification.create({
+      email,
+      code: hashedCode,
+      expiresAt: new Date(expirationTime),
+      type: "emailVerification",
+      tempUserData: existingVerification.tempUserData,
+    });
+    res.status(200).json({
+      status: "success",
+      message: "Verification code resent to your email.",
+    });
+  } catch (err) {
+    console.error("Error resending verification email:", err.message);
+    return next(new ApiError("Error sending email", 500));
+  }
+});
+
 // ==================== LOGIN ====================
 // @route   POST /auth/login
 // @access  Public

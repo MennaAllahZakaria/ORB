@@ -2,6 +2,7 @@ const express = require("express");
 const {
     signup,
     verifyEmailUser,
+    resendVerificationCode,
     login,
     forgetPassword,
     verifyForgotPasswordCode,
@@ -34,6 +35,9 @@ router.post("/signup" ,uploadImageAndFile,attachUploadedLinks, signupValidator, 
 
 // 📌 Verify email (create account after code)
 router.post("/verifyEmailUser", verifyEmailValidator, verifyEmailUser);
+
+// 📌 Resend verification code
+router.post("/resendVerificationCode", resendVerificationCode);
 
 // 📌 Login
 router.post("/login",loginValidator, login);
