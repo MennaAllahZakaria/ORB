@@ -23,19 +23,10 @@ const teacherProfileSchema = new mongoose.Schema(
   {
     education_system: {
       type: String,
-      enum: ["National", "American", "British","International", "Other"],
     },
     academic_stages: {
       type: [String],
       required: true,
-      enum: [
-        "KG",
-        "Primary",
-        "Preparatory",
-        "Secondary",
-        "University",
-        "Other",
-      ],
     },
     school: {
       type: String,
