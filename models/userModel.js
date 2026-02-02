@@ -45,6 +45,9 @@ const teacherProfileSchema = new mongoose.Schema(
       type: [String],
       required: true,
     },
+    experienceYears: {
+      type: Number,
+    },
     bio: {
       type: String,
       //required: true,

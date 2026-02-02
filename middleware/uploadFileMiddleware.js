@@ -15,7 +15,7 @@ const storage = new CloudinaryStorage({
       resource_type = "image";
     } else if (file.fieldname === "certificate") {
       folder = "certificates";
-      resource_type = "raw";
+      resource_type = (file.mimetype.startsWith("image/")) ? "image" : "raw";
     }
 
     return {
@@ -38,9 +38,9 @@ const fileFilter = (req, file, cb) => {
 
   if (
     file.fieldname === "certificate" &&
-    file.mimetype !== "application/pdf"
+    file.mimetype !== "application/pdf" || file.mimetype.startsWith("image/")
   ) {
-    return cb(new ApiError("Only PDF allowed for certificate", 400), false);
+    return cb(new ApiError("Only PDF & image allowed for certificate", 400), false);
   }
 
   cb(null, true);
