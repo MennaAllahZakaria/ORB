@@ -22,7 +22,8 @@ const paymentInfoSchema = new mongoose.Schema(
 const teacherProfileSchema = new mongoose.Schema(
   {
     education_system: {
-      type: String,
+      type: [String],
+      required: true,
     },
     academic_stages: {
       type: [String],
