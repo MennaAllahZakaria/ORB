@@ -57,7 +57,13 @@ const lessonSchema = new mongoose.Schema(
         teacher: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
         proposedPrice: Number,
         message: String,
+        status: {
+          type: String,
+          enum: ["pending", "accepted", "rejected"],
+          default: "pending",
+        },
         createdAt: { type: Date, default: Date.now },
+        respondedAt: Date,
       },
     ],
 
@@ -76,7 +82,7 @@ const lessonSchema = new mongoose.Schema(
     ===================== */
     status: {
       type: String,
-      enum: ["pending", "approved", "completed", "canceled"],
+      enum: ["pending", "approved", "completed", "canceled" , "problem"],
       default: "pending",
     },
 
@@ -156,16 +162,29 @@ const lessonSchema = new mongoose.Schema(
     },
 
     // lesson completion 
-    completion: {
+    finalCompletionStatus: {
       type: String,
-      enum : ["completed", "incomplete"],
-      default: null,
+      enum: ["pending", "completed", "incomplete"],
+      default: "pending",
     },
-    reason_for_incomplete: {
+
+    reviewStatus: {
       type: String,
-      enum : ["no_show_student","no_show_tyeacher ", "technical_issues_by_stydent", "technical_issues_by_teacher", "canceled_by_agreement", "other"],
-      default: null,
+      enum: [
+        "waiting_second_party",
+        "auto_resolved",
+        "disputed",
+        "under_admin_review",
+        "resolved_by_admin"
+      ],
+      default: "waiting_second_party",
     },
+
+    disputeFlag: {
+      type: Boolean,
+      default: false,
+    },
+
 
   },
   { timestamps: true }
