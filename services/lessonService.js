@@ -651,7 +651,7 @@ exports.getLessons = asyncHandler(async (req, res, next) => {
 
   const apiFeatures = new ApiFeatures(
     Lesson.find(filter)
-      .populate("student", "firstName lastName email")
+      .populate("student", "firstName lastName email studentProfile")
       .populate("acceptedTeacher", "firstName lastName email")
       .populate("interestedTeachers", "firstName lastName email"),
     req.query
