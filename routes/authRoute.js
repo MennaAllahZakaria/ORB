@@ -9,7 +9,8 @@ const {
     resetPassword,
     updateFcmToken,
     changePassword,
-    updatePreferredLanguage
+    updatePreferredLanguage,
+    getLoggedInUser
 } = require("../services/authService");
 
 const {
@@ -61,4 +62,7 @@ router.put("/changePassword",protect, changePasswordValidator, changePassword);
 
 // ================= UPDATE PREFERRED LANGUAGE =================
 router.patch("/updatePreferredLanguage",protect, updatePreferredLanguage);
+
+//================== GET LOGGED IN USER DATA ===================
+router.get("/me",protect,getLoggedInUser);
 module.exports = router;

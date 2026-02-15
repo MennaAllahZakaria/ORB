@@ -513,3 +513,19 @@ exports.updatePreferredLanguage = asyncHandler(async (req, res, next) => {
     preferredLanguage: user.preferredLang,
   });
 });
+
+exports.getLoggedInUser = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id);
+  if (!user) {
+    throw new ApiError("User not found", 404);
+  }
+ 
+ 
+  res.status(200).json({  
+    status: "success",
+    data:{
+      user
+    }
+  });
+  
+});
