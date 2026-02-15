@@ -6,15 +6,6 @@ const Lesson = require("../models/lessonModel");
 const CompleteLesson = require("../models/completeLossonModel");
 const Notification = require("../models/notificationModel");
 
-const { decryptToken } = require("../utils/fcmToken");
-const { v4: uuidv4 } = require("uuid");
-const { generateZegoToken } = require("../utils/zego");
-const { addPoints, deductPoints } = require("./pointsService");
-
-const admin = require("../fireBase/admin");
-const sendEmail = require("../utils/sendEmail"); 
-const ApiFeatures = require("../utils/apiFeatures");
-
 
 exports.submitCompletion = asyncHandler(async (req, res, next) => {
   const { lessonId } = req.params;

@@ -12,11 +12,13 @@ const {
     lessonIdValidator
 } = require("../utils/validators/lessonValidator");
 
+const {uploadImageAndFile, attachUploadedLinks} = require("../middleware/uploadFileMiddleware");
+
 const router = express.Router();
 
 router.use(protect);
 
-router.post("/:lessonId",allowedTo("student" , "teacher"),lessonIdValidator,submitCompletion);
+router.post("/:lessonId",allowedTo("student" , "teacher"),lessonIdValidator,uploadImageAndFile, attachUploadedLinks,submitCompletion);
 
 router.get("/disputedLessons", allowedTo("admin"),getDisputedLessons);
 
