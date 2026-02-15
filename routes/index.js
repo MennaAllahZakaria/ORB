@@ -1,6 +1,7 @@
 const authRoutes = require("./authRoute");
 const adminRoutes = require("./adminRoute");
 const lessonRoutes = require("./lessonRoute");
+const completeLessonRoutes = require("./completeLessonRoute");
 const teacherRoutes = require("./teacherRoute");
 const paymentRoutes = require("./paymentRoute");
 const zegoRoutes = require("./zegoRoute");
@@ -37,6 +38,7 @@ const mountRoutes = (app) => {
 app.use("/auth", authRoutes);
 app.use("/admin", adminRoutes);
 app.use("/lessons", lessonRoutes);
+app.use("/completeLessons",completeLessonRoutes)
 app.use("/teachers", teacherRoutes);
 app.use("/payments", paymentRoutes);
 app.use("/zego", zegoRoutes);
