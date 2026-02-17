@@ -13,7 +13,7 @@ exports.initSocket = (server) => {
     try {
       const token = socket.handshake.auth.token;
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET_KEY);
 
       const user = await User.findById(decoded.id);
 
