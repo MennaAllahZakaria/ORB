@@ -1,59 +1,79 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const path = require("path");
+const http = require("http"); 
+
 const ApiError = require("./utils/apiError");
+
 dotenv.config({ path: "config.env" });
+
 const morgan = require("morgan");
 const cors = require("cors");
 const compression = require("compression");
+
 const mountRoutes = require("./routes/index");
 const globalError = require("./middleware/errorMiddleware");
 const dbConnection = require("./config/database");
-// //Routes
-// // const mountRoutes = require("./routes");
-//connect with db
+
+const { initSocket } = require("./config/socket"); // 👈 الجديد
+
+/* =========================
+   DB
+========================= */
 dbConnection();
 
-// //express app
+/* =========================
+   EXPRESS
+========================= */
 const app = express();
 
-// Enable other domains to access your application
 app.use(cors());
-
-// compress all responses
 app.use(compression());
 
-//Middleware
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));// form-data 
-app.use(express.static(path.join(__dirname, "uploads"))); // /name photo => in localhost
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, "uploads")));
 
-if (process.env.NODE_ENV == "development") {
+if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
   console.log(process.env.NODE_ENV);
 }
 
+/* =========================
+   ROUTES
+========================= */
+mountRoutes(app);
 
-
-//Mount Routes
-    mountRoutes(app);
-
-// app.all("*", (req, res, next) => {
-//   //Create error and send it to error handling middleware
-//   next(new ApiError(`Can't find this route: ${req.originalUrl}`, 400));
-// });
-
-//Global error handling middleware for express
+/* =========================
+   GLOBAL ERROR
+========================= */
 app.use(globalError);
 
+/* =========================
+   HTTP SERVER (IMPORTANT)
+========================= */
+const server = http.createServer(app); // 👈 بدل app.listen
+
+/* =========================
+   SOCKET INIT
+========================= */
+initSocket(server); // 👈 ربط socket بالسيرفر
+
+/* =========================
+   START SERVER
+========================= */
 const PORT = process.env.PORT || 8000;
-const server = app.listen(PORT, () => {
+
+server.listen(PORT, () => {
   console.log(`App running on port ${PORT}`);
 });
 
-//handle rejection outside express
+/* =========================
+   HANDLE PROMISE REJECTION
+========================= */
 process.on("unhandledRejection", (err) => {
   console.error(`unhandledRejection: ${err.name} | ${err.message}`);
+
   server.close(() => {
     console.error(`Shutting down...`);
     process.exit(1);

@@ -652,8 +652,8 @@ exports.getLessons = asyncHandler(async (req, res, next) => {
   const apiFeatures = new ApiFeatures(
     Lesson.find(filter)
       .populate("student", "firstName lastName email studentProfile")
-      .populate("acceptedTeacher", "firstName lastName email")
-      .populate("interestedTeachers", "firstName lastName email"),
+      .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating")
+      .populate("interestedTeachers", "firstName lastName email teacherProfile.avgRating"),
     req.query
   )
     .filter()
@@ -707,6 +707,7 @@ exports.completeLesson = asyncHandler(async (req, res, next) => {
   lesson.completion = completion;
   if(completion === "incomplete"){
     lesson.reason_for_incomplete = reason_for_incomplete;
+    lesson.status = "problem";
   }
 
   await lesson.save();
