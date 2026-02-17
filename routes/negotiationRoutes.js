@@ -6,7 +6,7 @@ const {
   getMessages,
   acceptOffer,
   rejectOffer
-} = require("../services/negotiationNotificationService");
+} = require("../services/negotiationsService");
 
 const { protect } = require("../middleware/authMiddleware");
 
