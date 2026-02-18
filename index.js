@@ -1,9 +1,11 @@
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+});
+
 const express = require("express");
 const dotenv = require("dotenv");
 const path = require("path");
-const http = require("http"); 
-
-const ApiError = require("./utils/apiError");
+const http = require("http");
 
 dotenv.config({ path: "config.env" });
 
@@ -14,68 +16,43 @@ const compression = require("compression");
 const mountRoutes = require("./routes/index");
 const globalError = require("./middleware/errorMiddleware");
 const dbConnection = require("./config/database");
+const { initSocket } = require("./config/socket");
 
-const { initSocket } = require("./config/socket"); // 👈 الجديد
-
-/* =========================
-   DB
-========================= */
-dbConnection();
-
-/* =========================
-   EXPRESS
-========================= */
 const app = express();
 
+/* DB */
+dbConnection()
+
+/* MIDDLEWARE */
 app.use(cors());
 app.use(compression());
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "uploads")));
 
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
-  console.log(process.env.NODE_ENV);
 }
 
-/* =========================
-   ROUTES
-========================= */
+/* ROUTES */
 mountRoutes(app);
-
-/* =========================
-   GLOBAL ERROR
-========================= */
 app.use(globalError);
 
-/* =========================
-   HTTP SERVER (IMPORTANT)
-========================= */
-const server = http.createServer(app); // 👈 بدل app.listen
+/* SERVER */
+const server = http.createServer(app);
+initSocket(server);
 
-/* =========================
-   SOCKET INIT
-========================= */
-initSocket(server); // 👈 ربط socket بالسيرفر
-
-/* =========================
-   START SERVER
-========================= */
 const PORT = process.env.PORT || 8000;
 
 server.listen(PORT, () => {
   console.log(`App running on port ${PORT}`);
 });
 
-/* =========================
-   HANDLE PROMISE REJECTION
-========================= */
+/* PROMISE ERRORS */
 process.on("unhandledRejection", (err) => {
-  console.error(`unhandledRejection: ${err.name} | ${err.message}`);
+  console.error("Unhandled Rejection:", err);
 
-  server.close(() => {
-    console.error(`Shutting down...`);
-    process.exit(1);
-  });
+  if (process.env.NODE_ENV === "production") {
+    server.close(() => process.exit(1));
+  }
 });

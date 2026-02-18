@@ -6,34 +6,59 @@ let io;
 
 exports.initSocket = (server) => {
   io = new Server(server, {
-    cors: { origin: "*" }
+    cors: {
+      origin: "*",
+    }
   });
 
+  /* =============================
+     AUTH MIDDLEWARE
+  ============================== */
   io.use(async (socket, next) => {
     try {
-      const token = socket.handshake.auth.token;
+      const token = socket.handshake.auth?.token;
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET_KEY);
+      if (!token) {
+        return next(new Error("No token provided"));
+      }
+
+      const decoded = jwt.verify(
+        token,
+        process.env.JWT_SECRET_KEY
+      );
 
       const user = await User.findById(decoded.id);
+
+      if (!user) {
+        return next(new Error("User not found"));
+      }
 
       socket.user = user;
 
       next();
-    } catch {
+    } catch (err) {
       next(new Error("Unauthorized"));
     }
   });
 
+  /* =============================
+     CONNECTION
+  ============================== */
   io.on("connection", (socket) => {
-    console.log("connected:", socket.user._id);
+    console.log("Socket connected:", socket.id);
 
     socket.on("joinThread", (threadId) => {
-      socket.join(threadId);
+      if (!threadId) return;
+      socket.join(threadId.toString());
     });
 
     socket.on("leaveThread", (threadId) => {
-      socket.leave(threadId);
+      if (!threadId) return;
+      socket.leave(threadId.toString());
+    });
+
+    socket.on("disconnect", (reason) => {
+      console.log("Socket disconnected:", reason);
     });
   });
 };

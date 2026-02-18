@@ -6,16 +6,20 @@ const Message = require("../models/LessonNegotiationMessageModel");
 const ApiError = require("../utils/apiError");
 
 const { sendNegotiationNotification } =
-  require("./negotiationNotificationService");
+  require("../services/negotiationNotificationService");
 
-const { getIO } = require("../config/socket"); // 🔥 مهم
+const { getIO } = require("../config/socket");
 
 
+/* =========================================
+   CREATE OR GET THREAD
+========================================= */
 exports.getOrCreateThread = asyncHandler(async (req, res, next) => {
   const { lessonId } = req.params;
 
   const lesson = await Lesson.findById(lessonId);
-  if (!lesson) return next(new ApiError("Lesson not found", 404));
+  if (!lesson)
+    return next(new ApiError("Lesson not found", 404));
 
   let teacherId;
 
@@ -54,6 +58,9 @@ exports.getOrCreateThread = asyncHandler(async (req, res, next) => {
 });
 
 
+/* =========================================
+   SEND MESSAGE
+========================================= */
 exports.sendMessage = asyncHandler(async (req, res, next) => {
   const io = getIO();
 
@@ -66,7 +73,9 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
   const thread = await Thread.findById(threadId)
     .populate("student teacher lesson");
 
-  if (!thread) return next(new ApiError("Thread not found", 404));
+  if (!thread)
+    return next(new ApiError("Thread not found", 404));
+
   if (thread.status !== "negotiating")
     return next(new ApiError("Thread closed", 400));
 
@@ -93,7 +102,6 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
 
   const receiver = isStudent ? thread.teacher : thread.student;
 
-  // 🔔 push
   await sendNegotiationNotification({
     lesson: thread.lesson,
     sender: req.user,
@@ -101,15 +109,15 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
     price
   });
 
-  // ⚡ realtime
   io.to(threadId.toString()).emit("newMessage", msg);
 
-  res.status(201).json({
-    status: "success",
-    data: msg
-  });
+  res.status(201).json({ status: "success", data: msg });
 });
 
+
+/* =========================================
+   GET MESSAGES
+========================================= */
 exports.getMessages = asyncHandler(async (req, res) => {
   const { threadId } = req.params;
   const page = +req.query.page || 0;
@@ -127,18 +135,36 @@ exports.getMessages = asyncHandler(async (req, res) => {
   });
 });
 
+
+/* =========================================
+   ACCEPT OFFER
+========================================= */
 exports.acceptOffer = asyncHandler(async (req, res, next) => {
   const io = getIO();
 
   const { threadId, messageId } = req.params;
 
   const thread = await Thread.findById(threadId);
-  if (!thread) return next(new ApiError("Thread not found", 404));
+  if (!thread)
+    return next(new ApiError("Thread not found", 404));
 
   if (!thread.student.equals(req.user._id))
     return next(new ApiError("Only student can accept", 403));
 
+  if (thread.status !== "negotiating")
+    return next(new ApiError("Thread already closed", 400));
+
   const message = await Message.findById(messageId);
+
+  if (!message || !message.thread.equals(thread._id))
+    return next(new ApiError("Invalid message", 400));
+
+  const lastMessage = await Message
+    .findOne({ thread: threadId })
+    .sort({ createdAt: -1 });
+
+  if (!lastMessage || !lastMessage._id.equals(messageId))
+    return next(new ApiError("Only last offer can be accepted", 400));
 
   message.type = "accept";
   await message.save();
@@ -158,7 +184,6 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
     { status: "closed" }
   );
 
-  //  realtime
   io.to(threadId.toString()).emit("offerAccepted", {
     price: message.price,
     teacher: thread.teacher
@@ -167,6 +192,10 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
   res.json({ status: "success" });
 });
 
+
+/* =========================================
+   REJECT OFFER
+========================================= */
 exports.rejectOffer = asyncHandler(async (req, res, next) => {
   const io = getIO();
 
@@ -175,12 +204,21 @@ exports.rejectOffer = asyncHandler(async (req, res, next) => {
   const message = await Message.findById(messageId)
     .populate("thread");
 
-  if (!message) return next(new ApiError("Message not found", 404));
+  if (!message)
+    return next(new ApiError("Message not found", 404));
+
+  const thread = message.thread;
+
+  const isStudent = thread.student.equals(req.user._id);
+  const isTeacher = thread.teacher.equals(req.user._id);
+
+  if (!isStudent && !isTeacher)
+    return next(new ApiError("Not allowed", 403));
 
   message.type = "reject";
   await message.save();
 
-  io.to(message.thread._id.toString()).emit("offerRejected", {
+  io.to(thread._id.toString()).emit("offerRejected", {
     messageId
   });
 
