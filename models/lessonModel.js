@@ -185,6 +185,16 @@ const lessonSchema = new mongoose.Schema(
       default: false,
     },
 
+    morningReminderSent: {
+      type: Boolean,
+      default: false
+  },
+
+  halfHourReminderSent: {
+      type: Boolean,
+      default: false
+  }
+
 
   },
   { timestamps: true }

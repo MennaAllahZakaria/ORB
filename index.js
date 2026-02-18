@@ -18,6 +18,8 @@ const globalError = require("./middleware/errorMiddleware");
 const dbConnection = require("./config/database");
 const { initSocket } = require("./config/socket");
 
+const { startLessonReminderCron } = require("./corn/lessonReminderCron");
+
 const app = express();
 
 /* DB */
@@ -41,6 +43,8 @@ app.use(globalError);
 /* SERVER */
 const server = http.createServer(app);
 initSocket(server);
+
+startLessonReminderCron();
 
 const PORT = process.env.PORT || 8000;
 
