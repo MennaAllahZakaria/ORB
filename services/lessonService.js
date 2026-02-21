@@ -18,150 +18,176 @@ const ApiFeatures = require("../utils/apiFeatures");
 const isSameId = (a, b) =>
   a && b && a.toString() === b.toString();
 
+async function sendLessonNotifications(lesson, teachers, student) {
+
+  const studentName =
+    `${student.firstName || ""} ${student.lastName || ""}`.trim() ||
+    "A student";
+
+  await Promise.allSettled(
+    teachers.map(async (teacher) => {
+
+      try {
+
+        if (!teacher.fcmToken) {
+          const message = `Hi ${teacher.firstName} ${teacher.lastName}, A new lesson request has been posted for the subject: ${lesson.subject} with ${lesson.price} EGP. Please log in to your account to view the details and respond.`;
+          try { 
+            await sendEmail({ 
+              Email: teacher.email, 
+              subject: "New Lesson Request Available", 
+              message, 
+            }); 
+          } catch (err) { 
+            console.error("❌ Error sending email notification:", err.message); 
+
+        } 
+          return;
+        }
+
+        const token = decryptToken(teacher.fcmToken);
+        if (!token) return;
+
+        const isArabic = teacher.preferredLang === "ar";
+
+        const formattedDate = new Date(lesson.requestedDate)
+          .toLocaleString("en-US", {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+
+        const title = isArabic
+          ? "🎓 طلب درس جديد!"
+          : "🎓 New Lesson Request!";
+
+        const body = isArabic
+          ? `📚 المادة: ${lesson.subject}\n💰 السعر: ${lesson.price} EGP\n🕒 ${formattedDate}`
+          : `📚 Subject: ${lesson.subject}\n💰 Price: ${lesson.price} EGP\n🕒 ${formattedDate}`;
+
+        await admin.messaging().send({
+          notification: { title, body },
+          token,
+          data: {
+            type: "lesson_request",
+            lessonId: lesson._id.toString()
+          }
+        });
+
+        await Notification.create({
+          type: "lesson_request",
+          referenceId: lesson._id,
+          sendBy: student._id,
+          recipient: teacher._id,
+          title,
+          message: body.replace(/\n/g, " ")
+        });
+
+      } catch (err) {
+        console.error("Notification error:", err.message);
+      }
+
+    })
+  );
+
+  console.log("Lesson notifications processed");
+
+}
+
 // =======================================================
 // 1️⃣ STUDENT - CREATE LESSON REQUEST
 // =======================================================
 exports.createLessonRequest = asyncHandler(async (req, res, next) => {
-  const { subject, requestedDate, durationInMinutes, price, title } =
-    req.body;
 
-  // Basic validation (can be extended)
+  const { subject, requestedDate, durationInMinutes, price, title } = req.body;
+
+  /* =========================
+     VALIDATION
+  ========================== */
+
   if (!subject || !requestedDate || !durationInMinutes || !price || !title) {
     return next(
-      new ApiError("title, subject, requestedDate, durationInMinutes and price are required", 400)
+      new ApiError(
+        "title, subject, requestedDate, durationInMinutes and price are required",
+        400
+      )
     );
   }
 
-  if ( new Date(requestedDate)<new Date()) {
-    return next(
-      new ApiError("requestedDate must be in the future", 400)
-    );
+  const lessonDate = new Date(requestedDate);
+
+  if (lessonDate <= new Date()) {
+    return next(new ApiError("requestedDate must be in the future", 400));
   }
 
+  /* =========================
+     CREATE LESSON
+  ========================== */
 
-  // Build lesson payload explicitly (avoid using req.body directly)
-  const lessonPayload = {
+  const lesson = await Lesson.create({
     student: req.user._id,
     title,
     subject,
-    requestedDate,
+    requestedDate: lessonDate,
     durationInMinutes,
     price,
-    meetingStatus: "upcoming",
-    meetingRoomId: null,
-    zegoTokenForStudent: null,
-    zegoTokenForTeacher: null,
-  };
+    meetingStatus: "upcoming"
+  });
 
-  const lesson = await Lesson.create(lessonPayload);
+  /* =========================
+     FIND MATCHING TEACHERS (Optimized Query)
+  ========================== */
 
-  let teachers = [];
+  const minHourly =
+    (price * 0.8 * 60) / durationInMinutes;
 
-  
+  const maxHourly =
+    (price * 1.2 * 60) / durationInMinutes;
 
- 
-    // 🎯 Open request – find matching teachers by subject and price range
-    const requested = new Date(requestedDate);
-
-    // Price range (±20% around student's proposed price)
-    const minPrice = price * 0.8;
-    const maxPrice = price * 1.2;
-
-    // Find teachers who teach this subject
-    const allTeachers = await User.find({
+  let teachers = await User.find(
+    {
       role: "teacher",
       "teacherProfile.subjects": subject,
-    });
-
-    // Filter teachers by effective lesson price based on their pricePerHour
-    teachers = allTeachers.filter((teacher) => {
-      const hourlyPrice = teacher.teacherProfile?.pricePerHour || 0;
-      if (!hourlyPrice) return false;
-      const calculatedLessonPrice = (hourlyPrice / 60) * durationInMinutes;
-      return (
-        calculatedLessonPrice >= minPrice &&
-        calculatedLessonPrice <= maxPrice
-      );
-    });  
-  // If no matching teachers found
-  if (teachers.length === 0) {
-    teachers = allTeachers;
-  }
-
-  // 🔔 Send notifications to matching teachers (FCM or email)
-  const studentName =
-    `${req.user.firstName || ""} ${req.user.lastName || ""}`.trim() ||
-    "A student";
-
-  for (const teacher of teachers) {
-    // If no fcmToken → fallback to email
-    if (!teacher.fcmToken) {
-      const message = `
-                    Hi ${teacher.firstName} ${teacher.lastName},
-                    A new lesson request has been posted for the subject: ${lesson.subject} with ${lesson.price} EGP.
-                    Please log in to your account to view the details and respond.
-                          `;
-      try {
-        await sendEmail({
-          Email: teacher.email,
-          subject: "New Lesson Request Available",
-          message,
-        });
-      } catch (err) {
-        console.error("❌ Error sending email notification:", err.message);
+      "teacherProfile.pricePerHour": {
+        $gte: minHourly,
+        $lte: maxHourly
       }
-      continue;
-    }
+    },
+    "firstName lastName email fcmToken preferredLang teacherProfile.pricePerHour"
+  );
 
-    const token = decryptToken(teacher.fcmToken);
-    if (!token) continue;
-
-    const formattedDate = new Date(lesson.requestedDate).toLocaleString(
-      "en-US",
+  // fallback لو مفيش حد في الرينج
+  if (!teachers.length) {
+    teachers = await User.find(
       {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-      }
+        role: "teacher",
+        "teacherProfile.subjects": subject
+      },
+      "firstName lastName email fcmToken preferredLang"
     );
-
-    const isArabic = teacher.preferredLang === "ar";
-
-    const titleNoti = isArabic ? "🎓 طلب درس جديد!" : "🎓 New Lesson Request!";
-    const bodyNoti = isArabic
-      ? `📚 المادة: ${lesson.subject}\n💰 السعر المقترح: ${lesson.price} EGP\n🕒 التاريخ: ${formattedDate}\n⏱️ المدة: ${lesson.durationInMinutes} دقيقة\n👤 من: ${studentName}`
-      : `📚 Subject: ${lesson.subject}\n💰 Proposed Price: ${lesson.price} EGP\n🕒 Date: ${formattedDate}\n⏱️ Duration: ${lesson.durationInMinutes} min\n👤 From: ${studentName}`;
-
-    try {
-      await admin.messaging().send({
-        notification: { title: titleNoti, body: bodyNoti },
-        token,
-        data: {
-          type: "lesson_request",
-          lessonId: lesson._id.toString(),
-          preferredLang: teacher.preferredLang || "en",
-        },
-      });
-
-      await Notification.create({
-        sendBy: req.user._id,
-        recipient: teacher._id,
-        title: titleNoti,
-        message: bodyNoti.replace(/\n/g, " "),
-      });
-    } catch (error) {
-      console.error("Error sending notification:", error);
-    }
   }
+
+  /* =========================
+     RESPONSE FIRST (NON BLOCKING)
+  ========================== */
 
   res.status(201).json({
     status: "success",
-    message: "Lesson request sent to all matching teachers.",
-    data: lesson,
+    message: "Lesson created successfully",
+    data: lesson
   });
+
+  /* =========================
+     SEND NOTIFICATIONS BACKGROUND
+  ========================== */
+
+  setImmediate(() => {
+    sendLessonNotifications(lesson, teachers, req.user);
+  });
+
 });
+
 
 // =======================================================
 // 2️⃣ TEACHER - GET LESSON REQUESTS (Matching Subjects)
