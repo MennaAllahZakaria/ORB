@@ -44,7 +44,7 @@ app.use(globalError);
 const server = http.createServer(app);
 initSocket(server);
 
-startLessonReminderCron();
+//startLessonReminderCron();
 
 const PORT = process.env.PORT || 8000;
 
