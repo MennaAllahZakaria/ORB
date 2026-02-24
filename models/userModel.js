@@ -217,5 +217,12 @@ userSchema.methods.updateLevel = function () {
   }
 };
 
+userSchema.index({
+  role: 1,
+  "teacherProfile.subjects": 1,
+  "teacherProfile.pricePerHour": 1
+});
+
+
 const User = mongoose.model("User", userSchema);
 module.exports = User;

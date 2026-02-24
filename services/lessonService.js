@@ -193,32 +193,64 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
 // 2️⃣ TEACHER - GET LESSON REQUESTS (Matching Subjects)
 // =======================================================
 exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
+
   if (req.user.role !== "teacher") {
-    return next(new ApiError("Only teachers can access lesson requests", 403));
+    return next(
+      new ApiError("Only teachers can access lesson requests", 403)
+    );
   }
 
-  // Ensure we have teacherProfile.subjects
-  const teacher = await User.findById(req.user._id).select(
-    "teacherProfile.subjects"
-  );
-  if (!teacher || !teacher.teacherProfile?.subjects?.length) {
+  /* =========================
+     GET TEACHER SUBJECTS
+  ========================== */
+
+  const teacher = await User.findById(req.user._id)
+    .select("teacherProfile.subjects");
+
+  if (!teacher?.teacherProfile?.subjects?.length) {
     return next(
       new ApiError("Teacher has no subjects configured in profile", 400)
     );
   }
 
-  const lessons = await Lesson.find({
+  /* =========================
+     PAGINATION
+  ========================== */
+
+  const page = Number(req.query.page) || 1;
+  const limit = 20;
+  const skip = (page - 1) * limit;
+
+  /* =========================
+     QUERY
+  ========================== */
+
+  const filter = {
     subject: { $in: teacher.teacherProfile.subjects },
     status: "pending",
-  }).populate("student", "firstName lastName email studentProfile")
-    .sort({ createdAt: -1 });
+    interestedTeachers: { $ne: req.user._id }
+  };
+
+  const lessons = await Lesson.find(filter)
+    .select("title subject price requestedDate durationInMinutes student createdAt")
+    .populate("student", "firstName lastName studentProfile.grade")
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .skip(skip)
+    .lean();
+
+  const total = await Lesson.countDocuments(filter);
 
   res.status(200).json({
     status: "success",
+    page,
     results: lessons.length,
-    data: lessons,
+    total,
+    data: lessons
   });
+
 });
+
 
 // =======================================================
 // 3️⃣ TEACHER - COUNTER OFFER FOR LESSON
