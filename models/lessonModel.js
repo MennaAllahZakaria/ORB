@@ -211,4 +211,10 @@ lessonSchema.virtual("durationMinutes").get(function () {
   return 0;
 });
 
+lessonSchema.index({
+  subject: 1,
+  status: 1,
+  createdAt: -1
+});
+
 module.exports = mongoose.model("Lesson", lessonSchema);
