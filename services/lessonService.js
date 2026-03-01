@@ -4,16 +4,17 @@ const ApiError = require("../utils/apiError");
 const User = require("../models/userModel");
 const Lesson = require("../models/lessonModel");
 const Notification = require("../models/notificationModel");
+const Thread = require("../models/LessonNegotiationThreadModel");
 
 const { decryptToken } = require("../utils/fcmToken");
-const { v4: uuidv4 } = require("uuid");
-const { generateZegoToken } = require("../utils/zego");
 const { addPoints, deductPoints } = require("./pointsService");
 
 const admin = require("../fireBase/admin");
 const sendEmail = require("../utils/sendEmail"); 
 const ApiFeatures = require("../utils/apiFeatures");
-const { sendLessonNotifications , sendInterestNotification } = require("../utils/lessonNotificaionHelper");
+const { sendLessonNotifications , sendInterestNotification , sendChooseTeacherNotification } = require("../utils/lessonNotificaionHelper");
+const { createLessonMeeting } = require("./zegoService");
+
 
 // Small helper to compare ObjectIds safely
 const isSameId = (a, b) =>
@@ -407,137 +408,102 @@ exports.updateLessonPriceRequest = asyncHandler(async (req, res, next) => {
 // 7️⃣ STUDENT - CHOOSE TEACHER FOR LESSON
 // =======================================================
 exports.chooseTeacher = asyncHandler(async (req, res, next) => {
+
   const { lessonId, teacherId } = req.params;
 
-  const lesson = await Lesson.findById(lessonId);
-  if (!lesson) return next(new ApiError("Lesson not found", 404));
+  /* ======================================
+     FIND LESSON WITH ATOMIC CONDITIONS
+  ======================================= */
 
-  if (!isSameId(lesson.student, req.user._id)) {
-    return next(
-      new ApiError("You are not authorized to modify this lesson", 403)
-    );
+  const lesson = await Lesson.findOne({
+    _id: lessonId,
+    student: req.user._id,
+    status: "pending",
+    interestedTeachers: teacherId
+  });
+
+  if (!lesson)
+    return next(new ApiError("Cannot choose this teacher", 400));
+
+  /* ======================================
+     CHECK IF THERE IS AN ACCEPTED THREAD
+  ======================================= */
+
+  const thread = await Thread.findOne({
+    lesson: lessonId,
+    teacher: teacherId,
+    status: "accepted"
+  });
+
+  if (thread?.agreedPrice) {
+    lesson.price = thread.agreedPrice;
   }
 
-  if (lesson.status !== "pending") {
-    return next(
-      new ApiError(
-        "Cannot choose a teacher for this lesson at its current status",
-        400
-      )
-    );
-  }
+  /* ======================================
+     APPROVE LESSON
+  ======================================= */
 
-  const isInterested = lesson.interestedTeachers.some((id) =>
-    isSameId(id, teacherId)
-  );
-  if (!isInterested) {
-    return next(new ApiError("This teacher did not express interest", 400));
-  }
-
-  // Accept the teacher
   lesson.acceptedTeacher = teacherId;
   lesson.status = "approved";
 
-  // Finalize price if teacher made an offer
-  const offer = lesson.offers.find((o) =>
-    isSameId(o.teacher, teacherId)
+  /* ======================================
+     CREATE MEETING (ZEGO SERVICE)
+  ======================================= */
+
+  const {
+    meetingRoomId,
+    studentToken,
+    teacherToken
+  } = await createLessonMeeting({
+    lesson,
+    studentId: req.user._id,
+    teacherId
+  });
+
+  /* ======================================
+     CLOSE OTHER THREADS IF EXIST
+  ======================================= */
+
+  await Thread.updateMany(
+    {
+      lesson: lessonId,
+      teacher: { $ne: teacherId },
+      status: "negotiating"
+    },
+    { status: "closed" }
   );
-  if (offer && offer.proposedPrice) {
-    lesson.price = offer.proposedPrice;
-  }
 
-  // 🎥 ZegoCloud room + tokens
-  const meetingRoomId = `lesson_${uuidv4()}`;
-
-  const teacherToken = generateZegoToken(
-    teacherId.toString(),
-    meetingRoomId
-  );
-  const studentToken = generateZegoToken(
-    req.user._id.toString(),
-    meetingRoomId
-  );
-
-  lesson.zegoTokenForStudent = studentToken;
-  lesson.zegoTokenForTeacher = teacherToken;
-  lesson.meetingRoomId = meetingRoomId;
-  lesson.meetingStatus = "upcoming";
-
-  await lesson.save();
-
-  const teacher = await User.findById(teacherId);
-  const student = await User.findById(lesson.student);
-
-  const lang = teacher?.preferredLang || "ar";
-
-  const titles = {
-    ar: "🎉 تم اختيارك لتدريس الدرس عبر ZegoCloud 🎥",
-    en: "🎉 You've been selected to teach this lesson on ZegoCloud 🎥",
-  };
-
-  const bodies = {
-    ar: `👩‍🎓 الطالب ${student.firstName} ${student.lastName} اختارك لتدريس مادة ${lesson.subject}.
-📅 يمكنك الآن بدء الجلسة في وقتها المحدد.`,
-    en: `👩‍🎓 The student ${student.firstName} ${student.lastName} selected you to teach ${lesson.subject}.
-📅 You can start the session at the scheduled time.`,
-  };
-
-  const title = titles[lang];
-  const body = bodies[lang];
-
-  // Notify teacher
-  if (teacher?.fcmToken) {
-    const token = decryptToken(teacher.fcmToken);
-    if (token) {
-      await admin.messaging().send({
-        notification: { title, body },
-        token,
-        data: {
-          type: "lesson_approved",
-          lessonId: lesson._id.toString(),
-          meetingRoomId,
-        },
-      });
-    }
-
-    await Notification.create({
-      sendBy: req.user._id,
-      recipient: teacherId,
-      title,
-      message: body,
-    });
-  } else {
-    const message = `
-                  Hi ${teacher.firstName} ${teacher.lastName},
-                  The student ${student.firstName} ${student.lastName} has selected you to teach the lesson on ${lesson.subject}.
-                  Please log in to your account to view the details and prepare for the session.
-                      `;
-    try {
-      await sendEmail({
-        Email: teacher.email,
-        subject: "You've Been Selected to Teach a Lesson",
-        message,
-      });
-    } catch (err) {
-      console.error("❌ Error sending email notification:", err.message);
-    }
-  }
+  /* ======================================
+     RESPONSE FIRST
+  ======================================= */
 
   res.status(200).json({
-    message:
-      lang === "ar"
-        ? "تم اختيار المدرس وإنشاء الغرفة بنجاح."
-        : "Teacher selected and room created successfully.",
+    message: "Teacher selected successfully.",
     data: {
       lesson,
       meetingRoomId,
       tokens: {
         student: studentToken,
-        teacher: teacherToken,
-      },
-    },
+        teacher: teacherToken
+      }
+    }
   });
+
+  /* ======================================
+     BACKGROUND NOTIFICATION
+  ======================================= */
+
+  setImmediate(() => {
+    sendChooseTeacherNotification(
+      lesson._id,
+      teacherId,
+      req.user
+    );
+  });
+
 });
+
+
 
 // =======================================================
 // 8️⃣ STUDENT - GET INTERESTED TEACHERS FOR LESSON

@@ -2,11 +2,47 @@ const asyncHandler = require("express-async-handler");
 const Lesson = require("../models/lessonModel");
 const Notification = require("../models/notificationModel");
 const { decryptToken } = require("../utils/fcmToken");
+const { v4: uuidv4 } = require("uuid");
+
 const admin = require("../fireBase/admin");
 const { addPoints } = require("./pointsService");
 const { _releasePaymentForLesson } = require("./paymentService");
+const { generateZegoToken } = require("../utils/zego");
+
 
 const isSameId = (a, b) => a && b && a.toString() === b.toString();
+
+exports.createLessonMeeting = async ({
+  lesson,
+  studentId,
+  teacherId
+}) => {
+
+  const meetingRoomId = `lesson_${uuidv4()}`;
+
+  const teacherToken = generateZegoToken(
+    teacherId.toString(),
+    meetingRoomId
+  );
+
+  const studentToken = generateZegoToken(
+    studentId.toString(),
+    meetingRoomId
+  );
+
+  lesson.meetingRoomId = meetingRoomId;
+  lesson.zegoTokenForStudent = studentToken;
+  lesson.zegoTokenForTeacher = teacherToken;
+  lesson.meetingStatus = "upcoming";
+
+  await lesson.save();
+
+  return {
+    meetingRoomId,
+    studentToken,
+    teacherToken
+  };
+};
 
 exports.zegoCallback = asyncHandler(async (req, res) => {
   const { event, room_id, user_id, event_time } = req.body;

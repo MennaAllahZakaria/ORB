@@ -149,3 +149,68 @@ exports.sendInterestNotification = async (lesson, teacher) => {
     console.error("Interest notification error:", err.message);
   }
 }
+
+
+exports.sendChooseTeacherNotification = async (lessonId, teacherId, studentUser) => {
+
+  try {
+
+    const lesson = await Lesson.findById(lessonId);
+    if (!lesson) return;
+
+    const teacher = await User.findById(teacherId);
+    const student = await User.findById(lesson.student);
+
+    if (!teacher || !student) return;
+
+    const lang = teacher.preferredLang || "ar";
+
+    const titles = {
+      ar: "🎉 تم اختيارك لتدريس الدرس عبر ZegoCloud 🎥",
+      en: "🎉 You've been selected to teach this lesson 🎥"
+    };
+
+    const bodies = {
+      ar: `👩‍🎓 الطالب ${student.firstName} ${student.lastName} اختارك لتدريس مادة ${lesson.subject}.`,
+      en: `👩‍🎓 ${student.firstName} ${student.lastName} selected you to teach ${lesson.subject}.`
+    };
+
+    const title = titles[lang];
+    const body = bodies[lang];
+
+    if (teacher.fcmToken) {
+
+      const token = decryptToken(teacher.fcmToken);
+
+      if (token) {
+        await admin.messaging().send({
+          notification: { title, body },
+          token,
+          data: {
+            type: "lesson_approved",
+            lessonId: lesson._id.toString()
+          }
+        });
+      }
+
+      await Notification.create({
+        type: "lesson_approved",
+        referenceId: lesson._id,
+        sendBy: studentUser._id,
+        recipient: teacher._id,
+        title,
+        message: body
+      });
+
+    } else {
+      await sendEmail({
+        Email: teacher.email,
+        subject: title,
+        message: body
+      });
+    }
+
+  } catch (err) {
+    console.error("ChooseTeacher notification error:", err.message);
+  }
+}

@@ -8,6 +8,7 @@ const ApiError = require("../utils/apiError");
 const { sendNegotiationNotification } =
   require("../services/negotiationNotificationService");
 
+const { createLessonMeeting } = require("./zegoService");
 const { getIO } = require("../config/socket");
 
 
@@ -187,11 +188,22 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
   thread.agreedPrice = message.price;
   await thread.save();
 
-  await Lesson.findByIdAndUpdate(thread.lesson, {
-    acceptedTeacher: thread.teacher,
-    price: message.price,
-    status: "approved"
-  });
+  const lesson = await Lesson.findById(thread.lesson);
+
+    lesson.acceptedTeacher = thread.teacher;
+    lesson.price = message.price;
+    lesson.status = "approved";
+
+    const {
+      meetingRoomId,
+      studentToken,
+      teacherToken
+    } = await createLessonMeeting({
+      lesson,
+      studentId: lesson.student,
+      teacherId: thread.teacher
+    });
+
 
   await Thread.updateMany(
     { lesson: thread.lesson, _id: { $ne: threadId } },
