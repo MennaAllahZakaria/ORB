@@ -2,13 +2,14 @@ const express = require("express");
 
 const {
   getOrCreateThread,
+  getThreadsForLesson,
   sendMessage,
   getMessages,
   acceptOffer,
   rejectOffer
 } = require("../services/negotiationsService");
 
-const { protect } = require("../middleware/authMiddleware");
+const { protect, allowedTo } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
@@ -33,22 +34,10 @@ router.post(
   getOrCreateThread
 );
 
-
-/*
- OPTIONAL
- list all threads for lesson (for student dashboard)
-*/
 router.get(
   "/lessons/:lessonId/threads",
-  async (req, res) => {
-    const Thread = require("../models/LessonNegotiationThreadModel");
-
-    const threads = await Thread.find({ lesson: req.params.lessonId })
-      .populate("teacher", "firstName lastName")
-      .sort({ lastMessageAt: -1 });
-
-    res.json({ status: "success", data: threads });
-  }
+  allowedTo("student"),
+  getThreadsForLesson
 );
 
 

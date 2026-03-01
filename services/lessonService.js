@@ -13,87 +13,13 @@ const { addPoints, deductPoints } = require("./pointsService");
 const admin = require("../fireBase/admin");
 const sendEmail = require("../utils/sendEmail"); 
 const ApiFeatures = require("../utils/apiFeatures");
+const { sendLessonNotifications , sendInterestNotification } = require("../utils/lessonNotificaionHelper");
 
 // Small helper to compare ObjectIds safely
 const isSameId = (a, b) =>
   a && b && a.toString() === b.toString();
 
-async function sendLessonNotifications(lesson, teachers, student) {
 
-  const studentName =
-    `${student.firstName || ""} ${student.lastName || ""}`.trim() ||
-    "A student";
-
-  await Promise.allSettled(
-    teachers.map(async (teacher) => {
-
-      try {
-
-        if (!teacher.fcmToken) {
-          const message = `Hi ${teacher.firstName} ${teacher.lastName}, A new lesson request has been posted for the subject: ${lesson.subject} with ${lesson.price} EGP. Please log in to your account to view the details and respond.`;
-          try { 
-            await sendEmail({ 
-              Email: teacher.email, 
-              subject: "New Lesson Request Available", 
-              message, 
-            }); 
-          } catch (err) { 
-            console.error("❌ Error sending email notification:", err.message); 
-
-        } 
-          return;
-        }
-
-        const token = decryptToken(teacher.fcmToken);
-        if (!token) return;
-
-        const isArabic = teacher.preferredLang === "ar";
-
-        const formattedDate = new Date(lesson.requestedDate)
-          .toLocaleString("en-US", {
-            weekday: "short",
-            day: "numeric",
-            month: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-
-        const title = isArabic
-          ? "🎓 طلب درس جديد!"
-          : "🎓 New Lesson Request!";
-
-        const body = isArabic
-          ? `📚 المادة: ${lesson.subject}\n💰 السعر: ${lesson.price} EGP\n🕒 ${formattedDate}`
-          : `📚 Subject: ${lesson.subject}\n💰 Price: ${lesson.price} EGP\n🕒 ${formattedDate}`;
-
-        await admin.messaging().send({
-          notification: { title, body },
-          token,
-          data: {
-            type: "lesson_request",
-            lessonId: lesson._id.toString()
-          }
-        });
-
-        await Notification.create({
-          type: "lesson_request",
-          referenceId: lesson._id,
-          sendBy: student._id,
-          recipient: teacher._id,
-          title,
-          message: body.replace(/\n/g, " ")
-        });
-
-      } catch (err) {
-        console.error("Notification error:", err.message);
-      }
-
-    })
-  );
-
-  console.log("Lesson notifications processed");
-
-}
 
 // =======================================================
 // 1️⃣ STUDENT - CREATE LESSON REQUEST
@@ -367,111 +293,73 @@ exports.getOffersForLesson = asyncHandler(async (req, res, next) => {
 // 5️⃣ TEACHER - RESPOND TO LESSON REQUEST (INTEREST/REJECT)
 // =======================================================
 exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
+
   if (req.user.role !== "teacher") {
-    return next(new ApiError("Only teachers can respond to lesson requests", 403));
+    return next(
+      new ApiError("Only teachers can respond to lesson requests", 403)
+    );
   }
 
   const { lessonId } = req.params;
-  const { response } = req.body; // "accept" or "reject"
+  const { response } = req.body;
   const teacherId = req.user._id;
 
   const lesson = await Lesson.findById(lessonId);
   if (!lesson) return next(new ApiError("Lesson not found", 404));
 
-  // Reject: just remove teacher from interestedTeachers (if present)
+  /* =============================
+     REJECT
+  ============================== */
   if (response === "reject") {
     lesson.interestedTeachers = lesson.interestedTeachers.filter(
       (id) => !isSameId(id, teacherId)
     );
+
     await lesson.save();
-    return res.status(200).json({ message: "You rejected this request." });
+
+    return res.status(200).json({
+      message: "You rejected this request."
+    });
   }
 
+  /* =============================
+     VALIDATION
+  ============================== */
   if (lesson.status !== "pending") {
     return next(
-      new ApiError(
-        "Cannot respond to this lesson at its current status",
-        400
-      )
+      new ApiError("Cannot respond to this lesson at its current status", 400)
     );
   }
 
-  // Mark teacher as interested if not already
+  /* =============================
+     ADD INTEREST
+  ============================== */
   const alreadyInterested = lesson.interestedTeachers.some((id) =>
     isSameId(id, teacherId)
   );
+
   if (!alreadyInterested) {
     lesson.interestedTeachers.push(teacherId);
     await lesson.save();
   }
 
-  const student = await User.findById(lesson.student);
-  if (!student) {
-    return res.status(200).json({
-      message: "Response saved but student not found (no notification sent).",
-      data: lesson,
-    });
-  }
-
-  const lang = student.preferredLang || "en";
-
-  const titles = {
-    en: "✅ A teacher is interested in your lesson request!",
-    ar: "✅ مدرس أبدى اهتمامه بطلب الحصة الخاص بك!",
-  };
-
-  const bodies = {
-    en: `👨‍🏫 ${req.user.firstName} ${req.user.lastName} is interested in teaching ${lesson.subject}.`,
-    ar: `👨‍🏫 ${req.user.firstName} ${req.user.lastName} وافق على تدريس مادة ${lesson.subject}.`,
-  };
-
-  const title = titles[lang];
-  const body = bodies[lang];
-
-  // FCM notification
-  if (student.fcmToken) {
-    const token = decryptToken(student.fcmToken);
-    if (token) {
-      await admin.messaging().send({
-        notification: { title, body },
-        token,
-        data: {
-          type: "teacher_interest",
-          lessonId: lesson._id.toString(),
-        },
-      });
-    }
-
-    await Notification.create({
-      sendBy: teacherId,
-      recipient: student._id,
-      title,
-      message: body,
-    });
-  } else {
-    // Fallback to email
-    const message = `
-                  Hi ${student.firstName} ${student.lastName},
-                  A teacher (${req.user.firstName} ${req.user.lastName}) has shown interest in teaching your requested lesson on ${lesson.subject} (${lesson.title}).
-                  Please log in to your account to view the details and choose your preferred teacher.
-                      `;
-    try {
-      await sendEmail({
-        Email: student.email,
-        subject: "A Teacher is Interested in Your Lesson Request",
-        message,
-      });
-    } catch (err) {
-      console.error("❌ Error sending email notification:", err.message);
-    }
-  }
+  /* =============================
+     RESPONSE FIRST
+  ============================== */
 
   res.status(200).json({
-    message: lang === "ar" ? "تم حفظ الرد بنجاح." : "Response saved successfully.",
+    message: "Response saved successfully.",
     data: lesson,
   });
-});
 
+  /* =============================
+     BACKGROUND NOTIFICATION
+  ============================== */
+
+  setImmediate(() => {
+    sendInterestNotification(lesson, req.user);
+  });
+});
 // =======================================================
 // 6️⃣ STUDENT - UPDATE LESSON PRICE REQUEST
 // =======================================================

@@ -41,7 +41,7 @@ exports.getOrCreateThread = asyncHandler(async (req, res, next) => {
     teacherId = req.query.teacherId;
 
     if (!teacherId)
-      return next(new ApiError("teacherId required", 400));
+      return next(new ApiError("teacherId required in query ", 400));
   }
 
   const thread = await Thread.findOneAndUpdate(
@@ -55,6 +55,20 @@ exports.getOrCreateThread = asyncHandler(async (req, res, next) => {
   );
 
   res.json({ status: "success", data: thread });
+});
+
+/* =========================================
+   GET THREADS FOR LESSON
+========================================= */
+exports.getThreadsForLesson = asyncHandler(async (req, res, next) => {
+  const threads = await Thread.find({ lesson: req.params.lessonId })
+      .populate("teacher", "firstName lastName")
+      .sort({ lastMessageAt: -1 });
+
+    res.json({ status: "success", 
+      results: threads.length,
+      data: threads 
+    });
 });
 
 
@@ -189,7 +203,14 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
     teacher: thread.teacher
   });
 
-  res.json({ status: "success" });
+  res.json({ 
+    status: "success",
+    data: {
+      price: message.price,
+      teacher: thread.teacher,
+      message
+    }
+  });
 });
 
 
