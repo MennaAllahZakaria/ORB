@@ -615,7 +615,7 @@ exports.getLessonDetailsForStudent = asyncHandler(async (req, res, next) => {
 // =======================================================
 exports.getLessonDetailsForTeacher = asyncHandler(async (req, res, next) => {
   const { lessonId } = req.params;
-const lesson = await Lesson.findOne({
+  const lesson = await Lesson.findOne({
       _id: lessonId,
       $or: [
         { acceptedTeacher: req.user._id },
@@ -640,10 +640,22 @@ const lesson = await Lesson.findOne({
 // GET UPCOMING LESSONS FOR TEACHER/STUDENT
 // =======================================================
 exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
+
   const user = req.user;
-  let filter = {
-    requestedDate: { $gte: new Date() },
-    status: "approved"
+
+  const page = Math.max(1, +req.query.page || 1);
+  const limit = Math.min(50, +req.query.limit || 10);
+  const skip = (page - 1) * limit;
+
+  const { subject, paymentStatus, from, to, sort } = req.query;
+
+  /* ===============================
+     BASE FILTER
+  =============================== */
+
+  const filter = {
+    status: "approved",
+    requestedDate: { $gte: new Date() }
   };
 
   if (user.role === "student") {
@@ -651,21 +663,63 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
   } else if (user.role === "teacher") {
     filter.acceptedTeacher = user._id;
   } else {
-    return next(new ApiError("You are not authorized to view lessons", 403));
+    return next(new ApiError("Not authorized", 403));
   }
+
+  /* ===============================
+     OPTIONAL FILTERS
+  =============================== */
+
+  if (subject) {
+    filter.subject = subject;
+  }
+
+  if (paymentStatus) {
+    filter.paymentStatus = paymentStatus;
+  }
+
+  if (from || to) {
+    filter.requestedDate = {};
+    if (from) filter.requestedDate.$gte = new Date(from);
+    if (to) filter.requestedDate.$lte = new Date(to);
+  }
+
+  /* ===============================
+     TOTAL COUNT
+  =============================== */
+
+  const total = await Lesson.countDocuments(filter);
+
+  /* ===============================
+     QUERY
+  =============================== */
 
   const lessons = await Lesson.find(filter)
     .populate("student", "firstName lastName email studentProfile")
     .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating")
     .select("title subject price durationInMinutes requestedDate meetingRoomId finalCompletionStatus paymentStatus")
-    .sort({ requestedDate: 1 });
+    .sort(sort || "requestedDate")
+    .skip(skip)
+    .limit(limit);
+
+  /* ===============================
+     RESPONSE
+  =============================== */
 
   res.status(200).json({
     status: "success",
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+    hasNextPage: page * limit < total,
+    hasPrevPage: page > 1,
     results: lessons.length,
-    data: lessons,
+    data: lessons
   });
+
 });
+
 
 
 // =======================================================
