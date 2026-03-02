@@ -240,8 +240,9 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
     isSameId(id, teacherId)
   );
 
+
   if (!alreadyInterested) {
-    lesson.interestedTeachers.push(teacherId);
+    lesson.interestedTeachers.push({teacher: teacherId, price: lesson.price});
     await lesson.save();
   }
 
