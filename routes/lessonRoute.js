@@ -7,6 +7,9 @@ const {
     chooseTeacher,
     getInterestedTeachers,
     getLessons,
+    getLessonDetailsForStudent,
+    getLessonDetailsForTeacher,
+    getUpcomingLessons,
     cancelLessonRequest,
     completeLesson,
     counterOfferFromTeacher,
@@ -54,6 +57,17 @@ router.get(
     lessonIdValidator,
     getInterestedTeachers
 );
+
+// ================= STUDENT - GET LESSONS =================
+
+router.get("/student/:lessonId", allowedTo("student"), getLessonDetailsForStudent);
+
+// ================= TEACHER - GET LESSONS =================
+router.get("/teacher/:lessonId", allowedTo("teacher"), getLessonDetailsForTeacher);
+
+// ================= STUDENT/TEACHER - GET UPCOMING LESSONS =================
+router.get("/upcoming-lessons", allowedTo("student", "teacher"), getUpcomingLessons);
+
 
 // ================= USER - GET LESSONS =================
 router.get("/", getLessons);

@@ -145,7 +145,7 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
   ========================== */
 
   const page = Number(req.query.page) || 1;
-  const limit = 20;
+  const limit = Number(req.query.limit) || 20;
   const skip = (page - 1) * limit;
 
   /* =========================
@@ -584,6 +584,89 @@ exports.getLessons = asyncHandler(async (req, res, next) => {
     data: lessons,
   });
 });
+
+// =======================================================
+// 9️⃣ GET SINGLE LESSON DETAILS STUDENT ONLY (WITH POPULATED TEACHER INFO)
+// =======================================================
+exports.getLessonDetailsForStudent = asyncHandler(async (req, res, next) => {
+  const { lessonId } = req.params;
+  const lesson = await Lesson.findById(lessonId)
+    .populate("student", "firstName lastName email studentProfile")
+    .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating")
+    .populate("interestedTeachers", "firstName lastName email teacherProfile.avgRating")
+    .select("student acceptedTeacher interestedTeachers title subject price durationInMinutes requestedDate  meetingRoomId zegoTokenForStudent finalCompletionStatus");
+
+  if (!lesson) return next(new ApiError("Lesson not found", 404));
+  const isStudent = isSameId(lesson.student._id, req.user._id);
+  if (!isStudent) {
+    return next(
+      new ApiError("You are not authorized to view this lesson", 403)
+    );
+  }
+
+  res.status(200).json({
+    status: "success",
+    data: lesson,
+  });
+});
+
+// =======================================================
+// 9️⃣ GET SINGLE LESSON DETAILS TEACHER ONLY (WITH POPULATED STUDENT INFO)
+// =======================================================
+exports.getLessonDetailsForTeacher = asyncHandler(async (req, res, next) => {
+  const { lessonId } = req.params;
+const lesson = await Lesson.findOne({
+      _id: lessonId,
+      $or: [
+        { acceptedTeacher: req.user._id },
+        { interestedTeachers: req.user._id }
+      ]
+    })
+    .populate("student", "firstName lastName email studentProfile")
+    .select("student  title subject price durationInMinutes requestedDate  meetingRoomId zegoTokenForTeacher finalCompletionStatus");
+
+
+  if (!lesson) return next(new ApiError("Lesson not found", 404));
+
+  
+
+  res.status(200).json({
+    status: "success",
+    data: lesson,
+  });
+});
+
+// =======================================================
+// GET UPCOMING LESSONS FOR TEACHER/STUDENT
+// =======================================================
+exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
+  const user = req.user;
+  let filter = {
+    requestedDate: { $gte: new Date() },
+    status: "approved"
+  };
+
+  if (user.role === "student") {
+    filter.student = user._id;
+  } else if (user.role === "teacher") {
+    filter.acceptedTeacher = user._id;
+  } else {
+    return next(new ApiError("You are not authorized to view lessons", 403));
+  }
+
+  const lessons = await Lesson.find(filter)
+    .populate("student", "firstName lastName email studentProfile")
+    .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating")
+    .select("title subject price durationInMinutes requestedDate meetingRoomId finalCompletionStatus paymentStatus")
+    .sort({ requestedDate: 1 });
+
+  res.status(200).json({
+    status: "success",
+    results: lessons.length,
+    data: lessons,
+  });
+});
+
 
 // =======================================================
 // 🔟 COMPLETE LESSON (NO PAYOUT HERE – JUST STATUS + POINTS)
