@@ -3,7 +3,9 @@ const express = require("express");
 const {
     submitCompletion,
     getDisputedLessons,
-    adminResolveLesson
+    adminResolveLesson,
+    getPastCompletedLessons,
+    getProblematicPastLessons
 } = require("../services/completeLessonService");
 
 const { protect, allowedTo } = require("../middleware/authMiddleware");
@@ -23,5 +25,9 @@ router.post("/:lessonId",allowedTo("student" , "teacher"),lessonIdValidator,uplo
 router.get("/disputedLessons", allowedTo("admin"),getDisputedLessons);
 
 router.put("/:lessonId/adminResolve", allowedTo("admin"),lessonIdValidator,adminResolveLesson);
+
+router.get("/pastCompletedLessons", allowedTo("student", "teacher"),getPastCompletedLessons);
+
+router.get("/problematicPastLessons", allowedTo("student", "teacher"),getProblematicPastLessons);
 
 module.exports = router;
