@@ -15,6 +15,8 @@ const ApiFeatures = require("../utils/apiFeatures");
 const { sendLessonNotifications , sendInterestNotification , sendChooseTeacherNotification } = require("../utils/lessonNotificaionHelper");
 const { createLessonMeeting } = require("./zegoService");
 
+const { getIO } = require("../config/socket");
+const io = getIO();
 
 // Small helper to compare ObjectIds safely
 const isSameId = (a, b) =>
@@ -60,6 +62,16 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
     durationInMinutes,
     price,
     meetingStatus: "upcoming"
+  });
+
+  // broadcast للمدرسين حسب subject
+  
+  io.to(`subject_${lesson.subject}`).emit("newLessonRequest", {
+    _id: lesson._id,
+    title: lesson.title,
+    subject: lesson.subject,
+    price: lesson.price,
+    requestedDate: lesson.requestedDate
   });
 
   /* =========================
@@ -127,12 +139,9 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
     );
   }
 
-  /* =========================
-     GET TEACHER SUBJECTS
-  ========================== */
-
   const teacher = await User.findById(req.user._id)
-    .select("teacherProfile.subjects");
+    .select("teacherProfile.subjects")
+    .lean();
 
   if (!teacher?.teacherProfile?.subjects?.length) {
     return next(
@@ -140,17 +149,9 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
     );
   }
 
-  /* =========================
-     PAGINATION
-  ========================== */
-
-  const page = Number(req.query.page) || 1;
-  const limit = Number(req.query.limit) || 20;
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(50, Number(req.query.limit) || 20);
   const skip = (page - 1) * limit;
-
-  /* =========================
-     QUERY
-  ========================== */
 
   const filter = {
     subject: { $in: teacher.teacherProfile.subjects },
@@ -158,21 +159,26 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
     interestedTeachers: { $ne: req.user._id }
   };
 
-  const lessons = await Lesson.find(filter)
-    .select("title subject price requestedDate durationInMinutes student createdAt")
-    .populate("student", "firstName lastName studentProfile.grade")
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .skip(skip)
-    .lean();
-
-  const total = await Lesson.countDocuments(filter);
+  const [lessons, total] = await Promise.all([
+    Lesson.find(filter)
+      .select("title subject price requestedDate durationInMinutes student createdAt")
+      .populate("student", "firstName lastName studentProfile.grade")
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(skip)
+      .lean(),
+    Lesson.countDocuments(filter)
+  ]);
 
   res.status(200).json({
     status: "success",
     page,
-    results: lessons.length,
+    limit,
     total,
+    totalPages: Math.ceil(total / limit),
+    hasNextPage: page * limit < total,
+    hasPrevPage: page > 1,
+    results: lessons.length,
     data: lessons
   });
 
@@ -207,6 +213,11 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
     );
 
     await lesson.save();
+    io.to(`subject_${lesson.subject}`).emit("lessonRemoved", {
+      lessonId: lesson._id,
+      teacherId: req.user._id
+    });
+
 
     return res.status(200).json({
       message: "You rejected this request."
@@ -233,6 +244,19 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
     lesson.interestedTeachers.push(teacherId);
     await lesson.save();
   }
+
+  
+  // notify student
+  io.to(`user_${lesson.student}`).emit("teacherInterested", {
+    lessonId: lesson._id,
+    teacherId: teacherId
+  });
+
+  // update lesson room
+  io.to(`lesson_${lesson._id}`).emit("interestedTeachersUpdated", {
+    lessonId: lesson._id,
+    teacherId: teacherId
+  });
 
   /* =============================
      RESPONSE FIRST
@@ -399,33 +423,38 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
 // 8️⃣ STUDENT - GET INTERESTED TEACHERS FOR LESSON
 // =======================================================
 exports.getInterestedTeachers = asyncHandler(async (req, res, next) => {
+
   const { lessonId } = req.params;
 
-  const lesson = await Lesson.findById(lessonId).populate({
-    path: "interestedTeachers",
-    select:
-      "firstName lastName email imageProfile teacherProfile.subjects teacherProfile.avgRating teacherProfile.bio teacherProfile.experienceYears",
-  });
+  const lesson = await Lesson.findOne({
+    _id: lessonId,
+    student: req.user._id
+  })
+    .populate({
+      path: "interestedTeachers",
+      select: `
+        firstName 
+        lastName 
+        email 
+        imageProfile 
+        teacherProfile.subjects 
+        teacherProfile.avgRating 
+        teacherProfile.bio 
+        teacherProfile.experienceYears
+      `
+    })
+    .lean();
 
   if (!lesson) {
-    return next(new ApiError("Lesson not found", 404));
-  }
-
-  if (!isSameId(lesson.student, req.user._id)) {
     return next(
-      new ApiError(
-        "You are not authorized to view this lesson’s teachers",
-        403
-      )
+      new ApiError("Lesson not found or not authorized", 404)
     );
   }
 
-  const teachers = lesson.interestedTeachers;
-
   res.status(200).json({
     status: "success",
-    results: teachers.length,
-    data: teachers,
+    results: lesson.interestedTeachers.length,
+    data: lesson.interestedTeachers
   });
 });
 

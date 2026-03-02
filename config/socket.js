@@ -47,6 +47,26 @@ exports.initSocket = (server) => {
   io.on("connection", (socket) => {
     console.log("Socket connected:", socket.id);
 
+    // 🔹 user private room
+    socket.join(`user_${socket.user._id}`);
+
+    // 🔹 teacher subject rooms
+    if (socket.user.role === "teacher") {
+      const subjects = socket.user.teacherProfile?.subjects || [];
+      subjects.forEach(sub => {
+        socket.join(`subject_${sub}`);
+      });
+    }
+
+    // 🔹 join specific lesson
+    socket.on("joinLesson", (lessonId) => {
+      socket.join(`lesson_${lessonId}`);
+    });
+
+    socket.on("leaveLesson", (lessonId) => {
+      socket.leave(`lesson_${lessonId}`);
+    });
+
     socket.on("joinThread", (threadId) => {
       if (!threadId) return;
       socket.join(threadId.toString());
@@ -60,6 +80,8 @@ exports.initSocket = (server) => {
     socket.on("disconnect", (reason) => {
       console.log("Socket disconnected:", reason);
     });
+
+
   });
 };
 
