@@ -88,8 +88,8 @@ const lessonSchema = new mongoose.Schema(
 
     interestedTeachers: [
       {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
+        teacher: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        proposedPrice: Number,
       },
     ],
 
@@ -216,5 +216,7 @@ lessonSchema.index({
   status: 1,
   createdAt: -1
 });
+lessonSchema.index({ "interestedTeachers.teacher": 1 });
+
 
 module.exports = mongoose.model("Lesson", lessonSchema);

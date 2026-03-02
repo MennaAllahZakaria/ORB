@@ -16,7 +16,6 @@ const { sendLessonNotifications , sendInterestNotification , sendChooseTeacherNo
 const { createLessonMeeting } = require("./zegoService");
 
 const { getIO } = require("../config/socket");
-const io = getIO();
 
 // Small helper to compare ObjectIds safely
 const isSameId = (a, b) =>
@@ -28,6 +27,7 @@ const isSameId = (a, b) =>
 // 1️⃣ STUDENT - CREATE LESSON REQUEST
 // =======================================================
 exports.createLessonRequest = asyncHandler(async (req, res, next) => {
+  const io = getIO();
 
   const { subject, requestedDate, durationInMinutes, price, title } = req.body;
 
@@ -65,6 +65,7 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
   });
 
   // broadcast للمدرسين حسب subject
+  if (io) {
   
   io.to(`subject_${lesson.subject}`).emit("newLessonRequest", {
     _id: lesson._id,
@@ -73,7 +74,7 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
     price: lesson.price,
     requestedDate: lesson.requestedDate
   });
-
+  }
   /* =========================
      FIND MATCHING TEACHERS (Optimized Query)
   ========================== */
@@ -156,7 +157,7 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
   const filter = {
     subject: { $in: teacher.teacherProfile.subjects },
     status: "pending",
-    interestedTeachers: { $ne: req.user._id }
+    "interestedTeachers.teacher": { $ne: req.user._id }
   };
 
   const [lessons, total] = await Promise.all([
@@ -198,26 +199,37 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
   }
 
   const { lessonId } = req.params;
-  const { response } = req.body;
+  const { response, proposedPrice } = req.body;
   const teacherId = req.user._id;
+
+  if (proposedPrice && proposedPrice <= 0) {
+    return next(new ApiError("Invalid proposed price", 400));
+  }
+
 
   const lesson = await Lesson.findById(lessonId);
   if (!lesson) return next(new ApiError("Lesson not found", 404));
+
+  const io = getIO();
+
 
   /* =============================
      REJECT
   ============================== */
   if (response === "reject") {
+
     lesson.interestedTeachers = lesson.interestedTeachers.filter(
-      (id) => !isSameId(id, teacherId)
+      (item) => !isSameId(item.teacher, teacherId)
     );
 
     await lesson.save();
-    io.to(`subject_${lesson.subject}`).emit("lessonRemoved", {
-      lessonId: lesson._id,
-      teacherId: req.user._id
-    });
 
+    if (io) {
+      io.to(`subject_${lesson.subject}`).emit("lessonRemoved", {
+        lessonId: lesson._id,
+        teacherId
+      });
+    }
 
     return res.status(200).json({
       message: "You rejected this request."
@@ -234,30 +246,44 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
   }
 
   /* =============================
-     ADD INTEREST
+     ADD OR UPDATE INTEREST
   ============================== */
-  const alreadyInterested = lesson.interestedTeachers.some((id) =>
-    isSameId(id, teacherId)
+
+  const existing = lesson.interestedTeachers.find(item =>
+    isSameId(item.teacher, teacherId)
   );
 
-
-  if (!alreadyInterested) {
-    lesson.interestedTeachers.push({teacher: teacherId, price: lesson.price});
-    await lesson.save();
+  if (existing) {
+    existing.proposedPrice = proposedPrice || lesson.price;
+  } else {
+    lesson.interestedTeachers.push({
+      teacher: teacherId,
+      proposedPrice: proposedPrice || lesson.price
+    });
   }
 
-  
-  // notify student
-  io.to(`user_${lesson.student}`).emit("teacherInterested", {
-    lessonId: lesson._id,
-    teacherId: teacherId
-  });
+  await lesson.save();
 
-  // update lesson room
-  io.to(`lesson_${lesson._id}`).emit("interestedTeachersUpdated", {
-    lessonId: lesson._id,
-    teacherId: teacherId
-  });
+  /* =============================
+     REALTIME EVENTS
+  ============================== */
+
+  if (io) {
+
+    // notify student private room
+    io.to(`user_${lesson.student}`).emit("teacherInterested", {
+      lessonId: lesson._id,
+      teacherId,
+      proposedPrice: proposedPrice || lesson.price
+    });
+
+    // update lesson room
+    io.to(`lesson_${lesson._id}`).emit("interestedTeachersUpdated", {
+      lessonId: lesson._id,
+      teacherId,
+      proposedPrice: proposedPrice || lesson.price
+    });
+  }
 
   /* =============================
      RESPONSE FIRST
@@ -265,7 +291,7 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
 
   res.status(200).json({
     message: "Response saved successfully.",
-    data: lesson,
+    data: lesson
   });
 
   /* =============================
@@ -313,6 +339,15 @@ exports.updateLessonPriceRequest = asyncHandler(async (req, res, next) => {
   lesson.price = newPrice;
   await lesson.save();
 
+  const io = getIO();
+  if (io) {
+    io.to(`lesson_${lesson._id}`).emit("lessonPriceUpdated", {
+      lessonId: lesson._id,
+      newPrice
+    });
+  }
+
+
   res.status(200).json({
     message: "Lesson price updated successfully.",
     data: lesson,
@@ -330,12 +365,23 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
      FIND LESSON WITH ATOMIC CONDITIONS
   ======================================= */
 
-  const lesson = await Lesson.findOne({
+  const lesson = await Lesson.findOneAndUpdate(
+  {
     _id: lessonId,
     student: req.user._id,
     status: "pending",
-    interestedTeachers: teacherId
-  });
+    "interestedTeachers.teacher": teacherId
+  },
+  {
+    $set: {
+      acceptedTeacher: teacherId,
+      status: "approved"
+    }
+  },
+  { new: true }
+);
+
+
 
   if (!lesson)
     return next(new ApiError("Cannot choose this teacher", 400));
@@ -354,12 +400,6 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
     lesson.price = thread.agreedPrice;
   }
 
-  /* ======================================
-     APPROVE LESSON
-  ======================================= */
-
-  lesson.acceptedTeacher = teacherId;
-  lesson.status = "approved";
 
   /* ======================================
      CREATE MEETING (ZEGO SERVICE)
@@ -431,8 +471,9 @@ exports.getInterestedTeachers = asyncHandler(async (req, res, next) => {
     _id: lessonId,
     student: req.user._id
   })
+    .select("interestedTeachers")
     .populate({
-      path: "interestedTeachers",
+      path: "interestedTeachers.teacher",
       select: `
         firstName 
         lastName 
@@ -452,30 +493,48 @@ exports.getInterestedTeachers = asyncHandler(async (req, res, next) => {
     );
   }
 
+  const teachers = (lesson.interestedTeachers || []).map(item => ({
+    ...item.teacher,
+    proposedPrice: item.proposedPrice
+  }));
+
   res.status(200).json({
     status: "success",
-    results: lesson.interestedTeachers.length,
-    data: lesson.interestedTeachers
+    results: teachers.length,
+    data: teachers
   });
+
 });
 
 // =======================================================
 // 9️⃣ GET ALL LESSONS (Student/Teacher/Admin) + Filters
 // =======================================================
 exports.getLessons = asyncHandler(async (req, res, next) => {
+
   const user = req.user;
   let filter = {};
 
   if (user.role === "student") {
+
     filter = { student: user._id };
-  } else if (user.role === "teacher") {
-    // For teachers: lessons they're accepted in OR interested in
+
+  } 
+  else if (user.role === "teacher") {
+
     filter = {
-      $or: [{ acceptedTeacher: user._id }, { interestedTeachers: user._id }],
+      $or: [
+        { acceptedTeacher: user._id },
+        { "interestedTeachers.teacher": user._id }
+      ]
     };
-  } else if (user.role === "admin") {
+
+  } 
+  else if (user.role === "admin") {
+
     filter = {};
-  } else {
+
+  } 
+  else {
     return next(new ApiError("You are not authorized to view lessons", 403));
   }
 
@@ -485,7 +544,10 @@ exports.getLessons = asyncHandler(async (req, res, next) => {
     Lesson.find(filter)
       .populate("student", "firstName lastName email studentProfile")
       .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating")
-      .populate("interestedTeachers", "firstName lastName email teacherProfile.avgRating"),
+      .populate({
+        path: "interestedTeachers.teacher",
+        select: "firstName lastName email teacherProfile.avgRating"
+      }),
     req.query
   )
     .filter()
@@ -503,6 +565,7 @@ exports.getLessons = asyncHandler(async (req, res, next) => {
     pagination: paginationResult,
     data: lessons,
   });
+
 });
 
 // =======================================================
@@ -513,7 +576,7 @@ exports.getLessonDetailsForStudent = asyncHandler(async (req, res, next) => {
   const lesson = await Lesson.findById(lessonId)
     .populate("student", "firstName lastName email studentProfile")
     .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating")
-    .populate("interestedTeachers", "firstName lastName email teacherProfile.avgRating")
+    .populate("interestedTeachers.teacher", "firstName lastName email teacherProfile.avgRating")
     .select("student acceptedTeacher interestedTeachers title subject price durationInMinutes requestedDate  meetingRoomId zegoTokenForStudent finalCompletionStatus");
 
   if (!lesson) return next(new ApiError("Lesson not found", 404));
@@ -539,7 +602,7 @@ exports.getLessonDetailsForTeacher = asyncHandler(async (req, res, next) => {
       _id: lessonId,
       $or: [
         { acceptedTeacher: req.user._id },
-        { interestedTeachers: req.user._id }
+        { "interestedTeachers.teacher": req.user._id }
       ]
     })
     .populate("student", "firstName lastName email studentProfile")
@@ -679,6 +742,19 @@ exports.cancelLessonRequest = asyncHandler(async (req, res, next) => {
 
   lesson.status = "canceled";
   await lesson.save();
+
+  const io = getIO();
+  if (io) {
+
+    io.to(`lesson_${lesson._id}`).emit("lessonCanceled", {
+      lessonId: lesson._id
+    });
+
+    io.to(`subject_${lesson.subject}`).emit("lessonRemoved", { 
+      lessonId: lesson._id 
+    });
+
+  }
 
   // Deduct points for cancellation
   if (lesson.student) {

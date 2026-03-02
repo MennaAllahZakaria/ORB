@@ -26,7 +26,7 @@ exports.getOrCreateThread = asyncHandler(async (req, res, next) => {
 
   if (req.user.role === "teacher") {
     const isInterested = lesson.interestedTeachers.some(t =>
-      t.equals(req.user._id)
+      t.teacher.equals(req.user._id)
     );
 
     if (!isInterested)
@@ -220,7 +220,12 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
     data: {
       price: message.price,
       teacher: thread.teacher,
-      message
+      message,
+      meetingDetails: {
+        meetingRoomId,
+        studentToken,
+        teacherToken
+      }
     }
   });
 });
