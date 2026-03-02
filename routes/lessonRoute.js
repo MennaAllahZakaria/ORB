@@ -11,10 +11,8 @@ const {
     getLessonDetailsForTeacher,
     getUpcomingLessons,
     cancelLessonRequest,
-    completeLesson,
-    counterOfferFromTeacher,
     updateLessonPriceRequest,
-    getOffersForLesson
+    
     
 } = require("../services/lessonService");
 
@@ -78,22 +76,6 @@ router.delete(
     cancelLessonRequest
 );
 
-// ================= STUDENT - COMPLETE LESSON =================
-router.patch(
-    "/:lessonId/complete", allowedTo("teacher"),
-    completeLesson
-);
-
-// ================= TEACHER - COUNTER OFFER FOR LESSON =================
-router.post(
-    "/:lessonId/counter-offer", allowedTo("teacher"),
-    counterOfferFromTeacher
-);
-// ================= STUDENT - GET OFFERS FOR LESSON =================
-router.get(
-    "/:lessonId/offers", allowedTo("student"),
-    getOffersForLesson
-);
 
 // ================= STUDENT - UPDATE LESSON PRICE REQUEST =================
 router.patch(
