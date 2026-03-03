@@ -7,11 +7,11 @@ exports.sendMessageValidator = [
     .withMessage("threadId required")
     .isMongoId()
     .withMessage("Invalid threadId format"),
+
   check("message")
-    .notEmpty()
-    .withMessage("message required")
-    .isString()
-    .withMessage("message must be a string"),
+    .optional()
+    .isLength({ max: 500 })
+    .withMessage("message can be at most 500 characters"),
   check("price")
     .optional()
     .isFloat({ gt: 0 })
