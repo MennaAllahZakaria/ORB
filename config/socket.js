@@ -27,7 +27,7 @@ exports.initSocket = (server) => {
         process.env.JWT_SECRET_KEY
       );
 
-      const user = await User.findById(decoded.id);
+      const user = await User.findById(decoded.userId);
 
       if (!user) {
         return next(new Error("User not found"));
