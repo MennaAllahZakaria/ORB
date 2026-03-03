@@ -107,25 +107,28 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
     role: req.user.role,
     price,
     type: "offer"
-  });
+  }).populate("sender", "firstName lastName role imageProfile");
 
-  await msg.populate("sender", "firstName lastName role imageProfile");
 
   thread.lastMessageAt = new Date();
   await thread.save();
 
   const receiver = isStudent ? thread.teacher : thread.student;
 
-  await sendNegotiationNotification({
-    lesson: thread.lesson,
-    sender: req.user,
-    receiver,
-    price
-  });
   if ( io){
     io.to(threadId.toString()).emit("newMessage", msg);
   }
   res.status(201).json({ status: "success", data: msg });
+
+    setImmediate(() => {
+      sendNegotiationNotification({
+        lesson: thread.lesson,
+        sender: req.user,
+        receiver,
+        price
+      });
+      
+    });
 });
 
 
