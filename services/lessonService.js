@@ -305,9 +305,9 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
 // =======================================================
 // 6️⃣ STUDENT - UPDATE LESSON PRICE REQUEST
 // =======================================================
-exports.updateLessonPriceRequest = asyncHandler(async (req, res, next) => {
+exports.updateLessonRequest = asyncHandler(async (req, res, next) => {
   const { lessonId } = req.params;
-  const { newPrice } = req.body;
+  const { newPrice,newTitle,newDescription,newDate } = req.body;
 
   if (!newPrice || newPrice <= 0) {
     return next(
@@ -337,6 +337,9 @@ exports.updateLessonPriceRequest = asyncHandler(async (req, res, next) => {
   }
 
   lesson.price = newPrice;
+  lesson.title = newTitle || lesson.title;
+  lesson.description = newDescription || lesson.description;
+  lesson.requestedDate = newDate ? new Date(newDate) : lesson.requestedDate;
   await lesson.save();
 
   const io = getIO();

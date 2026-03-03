@@ -11,7 +11,7 @@ const {
     getLessonDetailsForTeacher,
     getUpcomingLessons,
     cancelLessonRequest,
-    updateLessonPriceRequest,
+    updateLessonRequest,
     
     
 } = require("../services/lessonService");
@@ -80,10 +80,10 @@ router.delete(
 
 // ================= STUDENT - UPDATE LESSON PRICE REQUEST =================
 router.patch(
-    "/:lessonId/update-price", allowedTo("student"),
+    "/:lessonId/update-lesson", allowedTo("student"),
     lessonIdValidator,
     
-    updateLessonPriceRequest
+    updateLessonRequest
 );
 
 module.exports = router;
