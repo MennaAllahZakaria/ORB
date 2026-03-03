@@ -1,6 +1,8 @@
 const admin = require("../fireBase/admin");
 const Notification = require("../models/notificationModel");
 const { decryptToken } = require("../utils/fcmToken");
+const sendEmail = require("../utils/sendEmail"); 
+
 
 exports.sendNegotiationNotification = async ({
   lesson,
@@ -9,7 +11,20 @@ exports.sendNegotiationNotification = async ({
   price
 }) => {
   try {
-    if (!receiver?.fcmToken || receiver.fcmToken === null) return;
+    if (!receiver?.fcmToken || receiver.fcmToken === null) {
+      const message = `Hi ${receiver.firstName} ${receiver.lastName}, ${sender.firstName} proposed ${price} EGP for your lesson on ${lesson.subject}. Please log in to your account to view the details and respond.`;
+      try { 
+        await sendEmail({ 
+          Email: receiver.email, 
+          subject: "New Price Offer for Your Lesson", 
+          message, 
+        }); 
+        console.log(`Email notification sent to ${receiver.email}`);
+      } catch (err) { 
+        console.error("❌ Error sending email notification:", err.message);
+      }
+      return;
+    }
 
     const token = decryptToken(receiver.fcmToken);
     if (!token) return;
