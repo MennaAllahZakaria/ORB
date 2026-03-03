@@ -299,7 +299,7 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
   ============================== */
 
   setImmediate(() => {
-    sendInterestNotification(lesson, req.user);
+    sendInterestNotification(lesson, req.user , proposedPrice);
   });
 });
 // =======================================================

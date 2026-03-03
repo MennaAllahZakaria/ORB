@@ -22,14 +22,15 @@ exports.sendLessonNotifications = async (lesson, teachers, student) => {
 
       try {
 
-        if (!teacher.fcmToken) {
-          const message = `Hi ${teacher.firstName} ${teacher.lastName}, A new lesson request has been posted for the subject: ${lesson.subject} with ${lesson.price} EGP. Please log in to your account to view the details and respond.`;
+        if (!teacher.fcmToken || teacher.fcmToken === null) {
+          const message = `Hi ${teacher.firstName} ${teacher.lastName}, A new lesson request has been posted by ${studentName} for the subject: ${lesson.subject} with ${lesson.price} EGP. Please log in to your account to view the details and respond.`;
           try { 
             await sendEmail({ 
               Email: teacher.email, 
               subject: "New Lesson Request Available", 
               message, 
             }); 
+            console.log(`Email notification sent to ${teacher.email}`);
           } catch (err) { 
             console.error("❌ Error sending email notification:", err.message); 
 
@@ -89,7 +90,7 @@ exports.sendLessonNotifications = async (lesson, teachers, student) => {
 }
 
 
-exports.sendInterestNotification = async (lesson, teacher) => {
+exports.sendInterestNotification = async (lesson, teacher , proposedPrice) => {
 
   try {
 
@@ -104,14 +105,14 @@ exports.sendInterestNotification = async (lesson, teacher) => {
     };
 
     const bodies = {
-      en: `👨‍🏫 ${teacher.firstName} ${teacher.lastName} is interested in teaching ${lesson.subject}.`,
-      ar: `👨‍🏫 ${teacher.firstName} ${teacher.lastName} وافق على تدريس مادة ${lesson.subject}.`
+      en: `👨‍🏫 ${teacher.firstName} ${teacher.lastName} is interested in teaching ${lesson.subject} with a proposed price of ${proposedPrice} EGP.`,
+      ar: `👨‍🏫 ${teacher.firstName} ${teacher.lastName} وافق على تدريس مادة ${lesson.subject} بسعر مقترح قدره ${proposedPrice} EGP.`
     };
 
     const title = titles[lang];
     const body = bodies[lang];
 
-    if (student.fcmToken) {
+    if (student.fcmToken && student.fcmToken !== null) {
 
       const token = decryptToken(student.fcmToken);
 

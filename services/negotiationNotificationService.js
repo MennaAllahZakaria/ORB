@@ -9,7 +9,7 @@ exports.sendNegotiationNotification = async ({
   price
 }) => {
   try {
-    if (!receiver?.fcmToken) return;
+    if (!receiver?.fcmToken || receiver.fcmToken === null) return;
 
     const token = decryptToken(receiver.fcmToken);
     if (!token) return;
