@@ -11,6 +11,25 @@ const { sendNegotiationNotification } =
 const { createLessonMeeting } = require("./zegoService");
 const { getIO } = require("../config/socket");
 
+// =======================================================
+//  update lesson price or teacher porposed price helper function
+// =======================================================
+
+async function updateLessonPriceOrProposedPrice(lesson, newPrice, isTeacher) {
+  if (isTeacher) {
+    const interestedTeacher = lesson.interestedTeachers.find(t =>
+      t.teacher.equals(this.user._id)
+    );
+    if (!interestedTeacher)
+      throw new ApiError("Teacher not interested", 403);
+    interestedTeacher.proposedPrice = newPrice;
+  } else {
+    lesson.price = newPrice;
+  }
+  await lesson.save();
+}
+
+
 
 /* =========================================
    CREATE OR GET THREAD
@@ -128,6 +147,12 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
         receiver,
         price
       });
+
+      updateLessonPriceOrProposedPrice(
+        thread.lesson, 
+        price, 
+        isTeacher
+      ).catch(err => console.error("Failed to update price:", err));
       
     });
 });
