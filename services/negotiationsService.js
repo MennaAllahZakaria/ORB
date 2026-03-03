@@ -63,7 +63,7 @@ exports.getOrCreateThread = asyncHandler(async (req, res, next) => {
 ========================================= */
 exports.getThreadsForLesson = asyncHandler(async (req, res, next) => {
   const threads = await Thread.find({ lesson: req.params.lessonId })
-      .populate("teacher", "firstName lastName")
+      .populate("teacher", "firstName lastName email teacherProfile.avgRating imageProfile")
       .sort({ lastMessageAt: -1 });
 
     res.json({ status: "success", 
@@ -110,7 +110,7 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
     type: "offer"
   });
 
-  await msg.populate("sender", "firstName lastName role");
+  await msg.populate("sender", "firstName lastName role imageProfile");
 
   thread.lastMessageAt = new Date();
   await thread.save();
@@ -141,7 +141,7 @@ exports.getMessages = asyncHandler(async (req, res) => {
     .sort({ createdAt: 1 })
     .limit(30)
     .skip(page * 30)
-    .populate("sender", "firstName lastName role");
+    .populate("sender", "firstName lastName role imageProfile");
 
   res.json({
     status: "success",

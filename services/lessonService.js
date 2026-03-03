@@ -94,7 +94,7 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
         $lte: maxHourly
       }
     },
-    "firstName lastName email fcmToken preferredLang teacherProfile.pricePerHour"
+    "firstName lastName email fcmToken preferredLang teacherProfile.pricePerHour imageProfile"
   );
 
   // fallback لو مفيش حد في الرينج
@@ -104,7 +104,7 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
         role: "teacher",
         "teacherProfile.subjects": subject
       },
-      "firstName lastName email fcmToken preferredLang"
+      "firstName lastName email fcmToken preferredLang imageProfile"
     );
   }
 
@@ -163,7 +163,7 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
   const [lessons, total] = await Promise.all([
     Lesson.find(filter)
       .select("title subject price requestedDate durationInMinutes student createdAt")
-      .populate("student", "firstName lastName studentProfile.grade")
+      .populate("student", "firstName lastName studentProfile.grade imageProfile")
       .sort({ createdAt: -1 })
       .limit(limit)
       .skip(skip)
@@ -542,11 +542,11 @@ exports.getLessons = asyncHandler(async (req, res, next) => {
 
   const apiFeatures = new ApiFeatures(
     Lesson.find(filter)
-      .populate("student", "firstName lastName email studentProfile")
-      .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating")
+      .populate("student", "firstName lastName email studentProfile imageProfile")
+      .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating imageProfile")
       .populate({
         path: "interestedTeachers.teacher",
-        select: "firstName lastName email teacherProfile.avgRating"
+        select: "firstName lastName email teacherProfile.avgRating imageProfile"
       }),
     req.query
   )
@@ -574,9 +574,9 @@ exports.getLessons = asyncHandler(async (req, res, next) => {
 exports.getLessonDetailsForStudent = asyncHandler(async (req, res, next) => {
   const { lessonId } = req.params;
   const lesson = await Lesson.findById(lessonId)
-    .populate("student", "firstName lastName email studentProfile")
-    .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating")
-    .populate("interestedTeachers.teacher", "firstName lastName email teacherProfile.avgRating")
+    .populate("student", "firstName lastName email studentProfile imageProfile")
+    .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating imageProfile")
+    .populate("interestedTeachers.teacher", "firstName lastName email teacherProfile.avgRating imageProfile")
     .select("student acceptedTeacher interestedTeachers title subject price durationInMinutes requestedDate  meetingRoomId zegoTokenForStudent finalCompletionStatus");
 
   if (!lesson) return next(new ApiError("Lesson not found", 404));
@@ -605,7 +605,7 @@ exports.getLessonDetailsForTeacher = asyncHandler(async (req, res, next) => {
         { "interestedTeachers.teacher": req.user._id }
       ]
     })
-    .populate("student", "firstName lastName email studentProfile")
+    .populate("student", "firstName lastName email studentProfile imageProfile")
     .select("student  title subject price durationInMinutes requestedDate  meetingRoomId zegoTokenForTeacher finalCompletionStatus");
 
 
@@ -678,8 +678,8 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
   =============================== */
 
   const lessons = await Lesson.find(filter)
-    .populate("student", "firstName lastName email studentProfile")
-    .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating")
+    .populate("student", "firstName lastName email studentProfile imageProfile")
+    .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating imageProfile")
     .select("title subject price durationInMinutes requestedDate meetingRoomId finalCompletionStatus paymentStatus")
     .sort(sort || "requestedDate")
     .skip(skip)
