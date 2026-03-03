@@ -26,10 +26,7 @@ const messageSchema = new mongoose.Schema(
     min: 1
   },
 
-  message: {
-    type: String,
-    maxlength: 500
-  },
+
 
   type: {
     type: String,

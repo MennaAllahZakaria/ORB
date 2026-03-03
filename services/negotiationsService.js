@@ -80,7 +80,7 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
   const io = getIO();
 
   const { threadId } = req.params;
-  const { price, message } = req.body;
+  const { price } = req.body;
 
   if (!price || price <= 0)
     return next(new ApiError("Invalid price", 400));
@@ -106,7 +106,6 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
     sender: req.user._id,
     role: req.user.role,
     price,
-    message,
     type: "offer"
   });
 
