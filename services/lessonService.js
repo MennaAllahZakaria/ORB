@@ -207,10 +207,7 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
   }
 
 
-  const lesson = await Lesson.findById(lessonId)
-    .populate("student", "firstName lastName email studentProfile imageProfile")
-    .select("student status interestedTeachers title subject price requestedDate durationInMinutes")
-    .lean();
+  const lesson = await Lesson.findById(lessonId);
   if (!lesson) return next(new ApiError("Lesson not found", 404));
 
   const io = getIO();
