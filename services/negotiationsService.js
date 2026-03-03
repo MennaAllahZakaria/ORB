@@ -107,8 +107,9 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
     role: req.user.role,
     price,
     type: "offer"
-  }).populate("sender", "firstName lastName role imageProfile");
+  })
 
+  await msg.populate("sender", "firstName lastName role imageProfile");
 
   thread.lastMessageAt = new Date();
   await thread.save();
