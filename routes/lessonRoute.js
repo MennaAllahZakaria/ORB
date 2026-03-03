@@ -58,10 +58,10 @@ router.get(
 
 // ================= STUDENT - GET LESSONS =================
 
-router.get("/student/:lessonId", allowedTo("student"), getLessonDetailsForStudent);
+router.get("/student/:lessonId", allowedTo("student"),lessonIdValidator, getLessonDetailsForStudent);
 
 // ================= TEACHER - GET LESSONS =================
-router.get("/teacher/:lessonId", allowedTo("teacher"), getLessonDetailsForTeacher);
+router.get("/teacher/:lessonId", allowedTo("teacher"),lessonIdValidator, getLessonDetailsForTeacher);
 
 // ================= STUDENT/TEACHER - GET UPCOMING LESSONS =================
 router.get("/upcoming-lessons", allowedTo("student", "teacher"), getUpcomingLessons);
@@ -73,6 +73,7 @@ router.get("/", getLessons);
 // ================= STUDENT - CANCEL LESSON REQUEST =================
 router.delete(
     "/:lessonId/cancel", allowedTo("student"),
+    lessonIdValidator,
     cancelLessonRequest
 );
 
@@ -80,6 +81,7 @@ router.delete(
 // ================= STUDENT - UPDATE LESSON PRICE REQUEST =================
 router.patch(
     "/:lessonId/update-price", allowedTo("student"),
+    lessonIdValidator,
     
     updateLessonPriceRequest
 );

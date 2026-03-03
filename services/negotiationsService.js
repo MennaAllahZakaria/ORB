@@ -123,9 +123,9 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
     receiver,
     price
   });
-
-  io.to(threadId.toString()).emit("newMessage", msg);
-
+  if ( io){
+    io.to(threadId.toString()).emit("newMessage", msg);
+  }
   res.status(201).json({ status: "success", data: msg });
 });
 
@@ -164,7 +164,7 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
     return next(new ApiError("Thread not found", 404));
 
   if (!thread.student.equals(req.user._id))
-    return next(new ApiError("Only student can accept", 403));
+    return next(new ApiError("Only lesson's student can accept", 403));
 
   if (thread.status !== "negotiating")
     return next(new ApiError("Thread already closed", 400));
@@ -210,10 +210,19 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
     { status: "closed" }
   );
 
-  io.to(threadId.toString()).emit("offerAccepted", {
-    price: message.price,
-    teacher: thread.teacher
-  });
+  if (io){
+    io.to(threadId.toString()).emit("offerAccepted", {
+      price: message.price,
+      teacher: thread.teacher
+    });
+    io.to(threadId.toString()).emit("lessonApproved", {
+      meetingDetails: {
+        meetingRoomId,
+        studentToken,
+        teacherToken
+      }
+    });
+  }
 
   res.json({ 
     status: "success",
@@ -256,9 +265,10 @@ exports.rejectOffer = asyncHandler(async (req, res, next) => {
   message.type = "reject";
   await message.save();
 
-  io.to(thread._id.toString()).emit("offerRejected", {
-    messageId
-  });
-
+  if (io){
+    io.to(thread._id.toString()).emit("offerRejected", {
+      messageId
+    });
+  }
   res.json({ status: "success" });
 });

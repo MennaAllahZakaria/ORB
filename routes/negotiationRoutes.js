@@ -11,6 +11,9 @@ const {
 
 const { protect, allowedTo } = require("../middleware/authMiddleware");
 
+const {lessonIdValidator} = require("../utils/validators/lessonValidator");
+const {sendMessageValidator, acceptOfferValidator, rejectOfferValidator, threadIdValidator} = require("../utils/validators/negotiationValidator");
+
 const router = express.Router();
 
 
@@ -31,12 +34,14 @@ router.use(protect);
 */
 router.post(
   "/lessons/:lessonId/thread",
+  lessonIdValidator,
   getOrCreateThread
 );
 
 router.get(
   "/lessons/:lessonId/threads",
   allowedTo("student"),
+  lessonIdValidator,
   getThreadsForLesson
 );
 
@@ -48,6 +53,7 @@ router.get(
 /* send offer / counter offer */
 router.post(
   "/threads/:threadId/messages",
+  sendMessageValidator,
   sendMessage
 );
 
@@ -55,6 +61,7 @@ router.post(
 /* get messages with pagination */
 router.get(
   "/threads/:threadId/messages",
+  threadIdValidator,
   getMessages
 );
 
@@ -62,6 +69,7 @@ router.get(
 /* accept last offer */
 router.patch(
   "/threads/:threadId/messages/:messageId/accept",
+  acceptOfferValidator,
   acceptOffer
 );
 
@@ -69,6 +77,7 @@ router.patch(
 /* reject offer */
 router.patch(
   "/messages/:messageId/reject",
+  rejectOfferValidator,
   rejectOffer
 );
 
