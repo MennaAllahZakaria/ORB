@@ -17,7 +17,7 @@ const storage = new CloudinaryStorage({
       folder = "certificates";
       resource_type = (file.mimetype.startsWith("image/")) ? "image" : "raw";
     } else if (file.fieldname === "proofImage"){
-      folder = "Complete Lessons proof images";
+      folder = "complete_lessons_proof_images";
       resource_type = (file.mimetype.startsWith("image/")) ? "image" : "raw";
     }
 
@@ -41,14 +41,14 @@ const fileFilter = (req, file, cb) => {
 
   if (
     file.fieldname === "certificate" &&
-    file.mimetype !== "application/pdf" || file.mimetype.startsWith("image/")
+    !(file.mimetype === "application/pdf" || file.mimetype.startsWith("image/"))
   ) {
     return cb(new ApiError("Only PDF & image allowed for certificate", 400), false);
   }
 
    if (
     file.fieldname === "proofImage" &&
-    file.mimetype !== "application/pdf" || file.mimetype.startsWith("image/")
+    !(file.mimetype === "application/pdf" || file.mimetype.startsWith("image/"))
   ) {
     return cb(new ApiError("Only PDF & image allowed for proofImage", 400), false);
   }

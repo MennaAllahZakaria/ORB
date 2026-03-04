@@ -10,7 +10,8 @@ const {
     updateFcmToken,
     changePassword,
     updatePreferredLanguage,
-    getLoggedInUser
+    getLoggedInUser,
+    updateImageProfile
 } = require("../services/authService");
 
 const {
@@ -65,4 +66,7 @@ router.patch("/updatePreferredLanguage",protect, updatePreferredLanguage);
 
 //================== GET LOGGED IN USER DATA ===================
 router.get("/me",protect,getLoggedInUser);
+
+//================== UPDATE IMAGE PROFILE ===================
+router.patch("/updateImageProfile", protect, uploadImageAndFile, attachUploadedLinks, updateImageProfile);
 module.exports = router;

@@ -529,3 +529,22 @@ exports.getLoggedInUser = asyncHandler(async (req, res) => {
   });
   
 });
+
+exports.updateImageProfile = asyncHandler(async (req, res, next) => {
+  if (!req.files?.imageProfile) {
+    return next(new ApiError("No image file uploaded", 400));
+  }
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    { imageProfile: req.imageProfileUrl },
+    { new: true }
+  );
+  if (!user) {
+    return next(new ApiError("User not found", 404));
+  }
+  res.status(200).json({
+    status: "success",
+    message: "Profile image updated successfully.",
+    data: { imageProfile: user.imageProfile },
+  });
+});

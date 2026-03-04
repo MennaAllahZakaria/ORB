@@ -38,6 +38,7 @@ exports.signupValidator = [
             if (value !== req.body.password) {
                 throw new Error("Password confirmation does not match password");
             }
+            req.body.passwordConfirm = undefined; // Remove confirmPassword from req.body
             return true;
         }),
 

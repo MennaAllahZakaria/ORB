@@ -161,13 +161,48 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
   };
 
   const [lessons, total] = await Promise.all([
-    Lesson.find(filter)
-      .select("title subject price requestedDate durationInMinutes student createdAt")
-      .populate("student", "firstName lastName studentProfile.grade imageProfile")
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .skip(skip)
-      .lean(),
+    Lesson.aggregate([
+      { $match: filter },
+
+      {
+        $addFields: {
+          interestedTeachersCount: { $size: "$interestedTeachers" }
+        }
+      },
+
+      {
+        $lookup: {
+          from: "users",
+          localField: "student",
+          foreignField: "_id",
+          as: "student"
+        }
+      },
+
+      { $unwind: "$student" },
+
+      {
+        $project: {
+          title: 1,
+          subject: 1,
+          price: 1,
+          requestedDate: 1,
+          durationInMinutes: 1,
+          createdAt: 1,
+          interestedTeachersCount: 1,
+
+          "student.firstName": 1,
+          "student.lastName": 1,
+          "student.studentProfile": 1,
+          "student.imageProfile": 1
+        }
+      },
+
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit }
+    ]),
+
     Lesson.countDocuments(filter)
   ]);
 
