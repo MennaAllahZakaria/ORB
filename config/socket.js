@@ -6,6 +6,8 @@ let io;
 
 exports.initSocket = (server) => {
   io = new Server(server, {
+    pingInterval: 25000,
+    pingTimeout: 60000,
     cors: {
       origin: "*",
     }
