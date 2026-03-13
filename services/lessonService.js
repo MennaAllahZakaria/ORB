@@ -671,61 +671,211 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
   const { subject, paymentStatus, from, to, sort } = req.query;
 
   /* ===============================
-     BASE FILTER
+     BASE MATCH
   =============================== */
 
-  const filter = {
-    status: "approved",
-    requestedDate: { $gte: new Date() }
+  let match = {
+    meetingStatus: { $in: ["upcoming", "ongoing"] }
   };
 
   if (user.role === "student") {
-    filter.student = user._id;
+
+    match.student = user._id;
+
+    match.$or = [
+      { status: "pending" },
+      { status: "approved", paymentStatus: "pending" },
+      { status: "approved", paymentStatus: "paid" }
+    ];
+
   } else if (user.role === "teacher") {
-    filter.acceptedTeacher = user._id;
+
+    match.$or = [
+      {
+        status: "pending",
+        "interestedTeachers.teacher": user._id
+      },
+      {
+        status: "approved",
+        acceptedTeacher: user._id
+      }
+    ];
+
   } else {
     return next(new ApiError("Not authorized", 403));
   }
 
-  /* ===============================
-     OPTIONAL FILTERS
-  =============================== */
-
-  if (subject) {
-    filter.subject = subject;
-  }
-
-  if (paymentStatus) {
-    filter.paymentStatus = paymentStatus;
-  }
+  if (subject) match.subject = subject;
+  if (paymentStatus) match.paymentStatus = paymentStatus;
 
   if (from || to) {
-    filter.requestedDate = {};
-    if (from) filter.requestedDate.$gte = new Date(from);
-    if (to) filter.requestedDate.$lte = new Date(to);
+    match.requestedDate = {};
+    if (from) match.requestedDate.$gte = new Date(from);
+    if (to) match.requestedDate.$lte = new Date(to);
   }
 
   /* ===============================
-     TOTAL COUNT
+     PIPELINE
   =============================== */
 
-  const total = await Lesson.countDocuments(filter);
+  const pipeline = [
 
-  /* ===============================
-     QUERY
-  =============================== */
+    { $match: match },
 
-  const lessons = await Lesson.find(filter)
-    .populate("student", "firstName lastName email studentProfile imageProfile")
-    .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating imageProfile")
-    .select("title subject price durationInMinutes requestedDate meetingRoomId finalCompletionStatus paymentStatus")
-    .sort(sort || "requestedDate")
-    .skip(skip)
-    .limit(limit);
+    /* ===============================
+       LESSON STATE
+    =============================== */
 
-  /* ===============================
-     RESPONSE
-  =============================== */
+    {
+      $addFields: {
+
+        lessonState: {
+
+          $switch: {
+
+            branches: [
+
+              /* ===== STUDENT STATES ===== */
+
+              {
+                case: {
+                  $and: [
+                    { $eq: [user.role, "student"] },
+                    { $eq: ["$status", "pending"] }
+                  ]
+                },
+                then: "waiting_teacher"
+              },
+
+              {
+                case: {
+                  $and: [
+                    { $eq: [user.role, "student"] },
+                    { $eq: ["$status", "approved"] },
+                    { $eq: ["$paymentStatus", "pending"] }
+                  ]
+                },
+                then: "awaiting_payment"
+              },
+
+              {
+                case: {
+                  $and: [
+                    { $eq: [user.role, "student"] },
+                    { $eq: ["$status", "approved"] },
+                    { $eq: ["$paymentStatus", "paid"] }
+                  ]
+                },
+                then: "confirmed"
+              },
+
+              /* ===== TEACHER STATES ===== */
+
+              {
+                case: {
+                  $and: [
+                    { $eq: [user.role, "teacher"] },
+                    { $eq: ["$status", "pending"] }
+                  ]
+                },
+                then: "price_received"
+              },
+
+              {
+                case: {
+                  $and: [
+                    { $eq: [user.role, "teacher"] },
+                    { $eq: ["$status", "approved"] }
+                  ]
+                },
+                then: "booked"
+              }
+
+            ],
+
+            default: "unknown"
+
+          }
+
+        }
+
+      }
+    },
+
+    /* ===============================
+       POPULATE STUDENT
+    =============================== */
+
+    {
+      $lookup: {
+        from: "users",
+        localField: "student",
+        foreignField: "_id",
+        as: "student"
+      }
+    },
+    { $unwind: "$student" },
+
+    /* ===============================
+       POPULATE TEACHER
+    =============================== */
+
+    {
+      $lookup: {
+        from: "users",
+        localField: "acceptedTeacher",
+        foreignField: "_id",
+        as: "acceptedTeacher"
+      }
+    },
+
+    {
+      $unwind: {
+        path: "$acceptedTeacher",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    /* ===============================
+       SELECT FIELDS
+    =============================== */
+
+    {
+      $project: {
+        title: 1,
+        subject: 1,
+        price: 1,
+        durationInMinutes: 1,
+        requestedDate: 1,
+        meetingRoomId: 1,
+        paymentStatus: 1,
+        lessonState: 1,
+
+        "student.firstName": 1,
+        "student.lastName": 1,
+        "student.email": 1,
+        "student.studentProfile": 1,
+        "student.imageProfile": 1,
+
+        "acceptedTeacher.firstName": 1,
+        "acceptedTeacher.lastName": 1,
+        "acceptedTeacher.email": 1,
+        "acceptedTeacher.imageProfile": 1,
+        "acceptedTeacher.teacherProfile.avgRating": 1
+      }
+    },
+
+    { $sort: { requestedDate: sort === "desc" ? -1 : 1 } },
+
+    { $skip: skip },
+
+    { $limit: limit }
+
+  ];
+
+  const lessons = await Lesson.aggregate(pipeline);
+
+  const total = await Lesson.countDocuments(match);
 
   res.status(200).json({
     status: "success",
