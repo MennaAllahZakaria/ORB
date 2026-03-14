@@ -215,3 +215,63 @@ exports.sendChooseTeacherNotification = async (lessonId, teacherId, studentUser)
     console.error("ChooseTeacher notification error:", err.message);
   }
 }
+
+exports.cancelLessonNotification = async (lessonId, recipientId , isStudent) => 
+{
+  try {
+
+    const lesson = await Lesson.findById(lessonId);
+    if (!lesson) return;
+
+    const recipient = await User.findById(recipientId);
+    if (!recipient) return;
+    const lang = recipient.preferredLang || "en";
+
+    const titles = {
+      en: "❌ Lesson Cancelled",
+      ar: "❌ تم إلغاء الدرس"
+    };
+    const bodies = {
+      en: isStudent 
+        ? `Your lesson request for ${lesson.subject} in ${lesson.requestedDate} with title ${lesson.title} has been cancelled. Please contact support for more information.`
+        : `The lesson request for ${lesson.subject} in ${lesson.requestedDate} with title ${lesson.title} has been cancelled by the student. Please contact support for more information.`,
+      ar: isStudent 
+        ? `تم إلغاء طلب الدرس الخاص بك لمادة ${lesson.subject} في ${lesson.requestedDate} مع العنوان ${lesson.title}. يرجى التواصل مع الدعم لمزيد من المعلومات.`
+        : `تم إلغاء طلب الدرس لمادة ${lesson.subject} في ${lesson.requestedDate} مع العنوان ${lesson.title} من قبل الطالب. يرجى التواصل مع الدعم لمزيد من المعلومات.`
+    };
+
+    const title = titles[lang];
+    const body = bodies[lang];
+
+    if (recipient.fcmToken) {
+
+      const token = decryptToken(recipient.fcmToken);
+      if (token) {
+        await admin.messaging().send({
+          notification: { title, body },
+          token,
+          data: {
+            type: "lesson_cancelled",
+            lessonId: lesson._id.toString()
+          }
+        });
+      }
+      await Notification.create({
+        type: "lesson_cancelled",
+        referenceId: lesson._id,
+        sendBy: recipientId,
+        recipient: recipientId,
+        title,
+        message: body
+      });
+    } else {
+      await sendEmail({
+        Email: recipient.email,
+        subject: title,
+        message: body
+      });
+    }
+  } catch (err) {
+    console.error("Cancel lesson notification error:", err.message);
+  }
+}

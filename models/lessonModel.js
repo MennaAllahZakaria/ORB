@@ -97,6 +97,10 @@ const lessonSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    cancelledBy: {
+      type: String,
+      enum: ["student", "teacher"]
+    },
 
     /* =====================
        PAYMENT STATUS (HIGH LEVEL)
@@ -194,6 +198,7 @@ const lessonSchema = new mongoose.Schema(
       type: Boolean,
       default: false
   }
+
 
 
   },

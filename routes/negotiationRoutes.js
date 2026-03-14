@@ -6,7 +6,8 @@ const {
   sendMessage,
   getMessages,
   acceptOffer,
-  rejectOffer
+  rejectOffer,
+  cancelNegotiation
 } = require("../services/negotiationsService");
 
 const { protect, allowedTo } = require("../middleware/authMiddleware");
@@ -81,5 +82,11 @@ router.patch(
   rejectOffer
 );
 
+/* cancel negotiation */
+router.patch(
+  "/threads/:threadId/cancel",
+  threadIdValidator,
+  cancelNegotiation
+);
 
 module.exports = router;
