@@ -12,6 +12,7 @@ dotenv.config({ path: "config.env" });
 const morgan = require("morgan");
 const cors = require("cors");
 const compression = require("compression");
+const cron = require("node-cron");
 
 const mountRoutes = require("./routes/index");
 const globalError = require("./middleware/errorMiddleware");
@@ -19,6 +20,7 @@ const dbConnection = require("./config/database");
 const { initSocket } = require("./config/socket");
 
 const { startLessonReminderCron } = require("./corn/lessonReminderCron");
+const { checkNegotiationTimeout } = require("./corn/negotiationTimeoutServiceCorn");
 
 const app = express();
 
@@ -45,6 +47,10 @@ const server = http.createServer(app);
 initSocket(server);
 
 //startLessonReminderCron();
+
+cron.schedule("* * * * *", async () => {
+  await checkNegotiationTimeout();
+});
 
 const PORT = process.env.PORT || 8000;
 

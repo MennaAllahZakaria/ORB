@@ -15,17 +15,23 @@ const { getIO } = require("../config/socket");
 //  update lesson price or teacher porposed price helper function
 // =======================================================
 
-async function updateLessonPriceOrProposedPrice(lesson, newPrice, isTeacher) {
+async function updateLessonPriceOrProposedPrice(lesson, newPrice, userId, isTeacher) {
+
   if (isTeacher) {
+
     const interestedTeacher = lesson.interestedTeachers.find(t =>
-      t.teacher.equals(this.user._id)
+      t.teacher.equals(userId)
     );
+
     if (!interestedTeacher)
       throw new ApiError("Teacher not interested", 403);
+
     interestedTeacher.proposedPrice = newPrice;
+
   } else {
     lesson.price = newPrice;
   }
+
   await lesson.save();
 }
 
@@ -65,7 +71,11 @@ exports.getOrCreateThread = asyncHandler(async (req, res, next) => {
   }
 
   const thread = await Thread.findOneAndUpdate(
-    { lesson: lessonId, teacher: teacherId },
+    {
+      lesson: lessonId,
+      teacher: teacherId,
+      student: lesson.student
+    },
     {
       lesson: lessonId,
       student: lesson.student,
@@ -96,28 +106,41 @@ exports.getThreadsForLesson = asyncHandler(async (req, res, next) => {
    SEND MESSAGE
 ========================================= */
 exports.sendMessage = asyncHandler(async (req, res, next) => {
-  const io = getIO();
 
+  const io = getIO();
   const { threadId } = req.params;
   const { price } = req.body;
 
   if (!price || price <= 0)
     return next(new ApiError("Invalid price", 400));
 
-  const thread = await Thread.findById(threadId)
-    .populate("student teacher lesson");
+  /* =========================
+     ATOMIC THREAD CHECK
+  ========================== */
+
+  const thread = await Thread.findOneAndUpdate(
+    {
+      _id: threadId,
+      status: "negotiating",
+      $or: [
+        { student: req.user._id },
+        { teacher: req.user._id }
+      ]
+    },
+    {
+      lastMessageAt: new Date(),
+      lastOfferBy: req.user._id,
+      lastOfferAt: new Date()
+    },
+    { new: true }
+  ).populate("student teacher lesson");
 
   if (!thread)
-    return next(new ApiError("Thread not found", 404));
+    return next(new ApiError("Thread closed or not allowed", 400));
 
-  if (thread.status !== "negotiating")
-    return next(new ApiError("Thread closed", 400));
-
-  const isStudent = thread.student._id.equals(req.user._id);
-  const isTeacher = thread.teacher._id.equals(req.user._id);
-
-  if (!isStudent && !isTeacher)
-    return next(new ApiError("Not allowed", 403));
+  /* =========================
+     CREATE MESSAGE
+  ========================== */
 
   const msg = await Message.create({
     thread: threadId,
@@ -126,35 +149,65 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
     role: req.user.role,
     price,
     type: "offer"
-  })
+  });
 
   await msg.populate("sender", "firstName lastName role imageProfile");
 
-  thread.lastMessageAt = new Date();
-  await thread.save();
+  /* =========================
+     SAVE LAST OFFER MESSAGE
+  ========================== */
 
-  const receiver = isStudent ? thread.teacher : thread.student;
+  await Thread.updateOne(
+    { _id: threadId },
+    { lastOfferMessage: msg._id }
+  );
 
-  if ( io){
+  /* =========================
+     REALTIME MESSAGE
+  ========================== */
+
+  if (io) {
     io.to(threadId.toString()).emit("newMessage", msg);
-  }
-  res.status(201).json({ status: "success", data: msg });
 
-    setImmediate(() => {
-      sendNegotiationNotification({
-        lesson: thread.lesson,
-        sender: req.user,
-        receiver,
-        price
-      });
-
-      updateLessonPriceOrProposedPrice(
-        thread.lesson, 
-        price, 
-        isTeacher
-      ).catch(err => console.error("Failed to update price:", err));
-      
+    io.to(threadId.toString()).emit("negotiationStatus", {
+      status: "waiting_for_approval",
+      lastOfferBy: req.user._id
     });
+  }
+
+  /* =========================
+     RESPONSE
+  ========================== */
+
+  res.status(201).json({
+    status: "success",
+    data: msg
+  });
+
+  /* =========================
+     BACKGROUND NOTIFICATION
+  ========================== */
+
+  const receiver =
+    thread.student.equals(req.user._id)
+      ? thread.teacher
+      : thread.student;
+
+  setImmediate(() => {
+    sendNegotiationNotification({
+      lesson: thread.lesson,
+      sender: req.user,
+      receiver,
+      price
+    });
+  });
+
+  await updateLessonPriceOrProposedPrice(
+    thread.lesson,
+    price,
+    req.user._id,
+    req.user.role === "teacher"
+  );
 });
 
 
@@ -168,7 +221,7 @@ exports.getMessages = asyncHandler(async (req, res) => {
   const messages = await Message.find({ thread: threadId })
     .sort({ createdAt: 1 })
     .limit(30)
-    .skip(page * 30)
+    .skip((page - 1) * 30)
     .populate("sender", "firstName lastName role imageProfile");
 
   res.json({
@@ -183,81 +236,116 @@ exports.getMessages = asyncHandler(async (req, res) => {
    ACCEPT OFFER
 ========================================= */
 exports.acceptOffer = asyncHandler(async (req, res, next) => {
-  const io = getIO();
 
+  const io = getIO();
   const { threadId, messageId } = req.params;
 
-  const thread = await Thread.findById(threadId);
-  if (!thread)
-    return next(new ApiError("Thread not found", 404));
+  /* =========================
+     GET MESSAGE + VALIDATION
+  ========================== */
 
-  if (!thread.student.equals(req.user._id))
-    return next(new ApiError("Only lesson's student can accept", 403));
+  const message = await Message.findOne({
+    _id: messageId,
+    thread: threadId
+  });
 
-  if (thread.status !== "negotiating")
-    return next(new ApiError("Thread already closed", 400));
-
-  const message = await Message.findById(messageId);
-
-  if (!message || !message.thread.equals(thread._id))
+  if (!message)
     return next(new ApiError("Invalid message", 400));
 
-  const lastMessage = await Message
-    .findOne({ thread: threadId })
-    .sort({ createdAt: -1 });
+  if (message.type !== "offer")
+    return next(new ApiError("Invalid offer", 400));
 
-  if (!lastMessage || !lastMessage._id.equals(messageId))
-    return next(new ApiError("Only last offer can be accepted", 400));
+  if (message.sender.equals(req.user._id))
+    return next(new ApiError("You cannot accept your own offer", 400));
+
+  /* =========================
+     ATOMIC THREAD UPDATE
+  ========================== */
+
+  const thread = await Thread.findOneAndUpdate(
+    {
+      _id: threadId,
+      status: "negotiating",
+      lastOfferMessage: messageId,
+      $or: [
+        { student: req.user._id },
+        { teacher: req.user._id }
+      ]
+    },
+    {
+      status: "accepted",
+      agreedPrice: message.price
+    },
+    { new: true }
+  );
+
+  if (!thread)
+    return next(new ApiError("Offer cannot be accepted", 400));
+
+  /* =========================
+     UPDATE MESSAGE
+  ========================== */
 
   message.type = "accept";
   await message.save();
 
-  thread.status = "accepted";
-  thread.agreedPrice = message.price;
-  await thread.save();
+  /* =========================
+     UPDATE LESSON
+  ========================== */
 
-  const lesson = await Lesson.findById(thread.lesson);
+  const lesson = await Lesson.findByIdAndUpdate(
+    thread.lesson,
+    {
+      acceptedTeacher: thread.teacher,
+      price: message.price,
+      status: "approved"
+    },
+    { new: true }
+  );
 
-    lesson.acceptedTeacher = thread.teacher;
-    lesson.price = message.price;
-    lesson.status = "approved";
+  const {
+    meetingRoomId,
+    studentToken,
+    teacherToken
+  } = await createLessonMeeting({
+    lesson,
+    studentId: lesson.student,
+    teacherId: thread.teacher
+  });
 
-    const {
-      meetingRoomId,
-      studentToken,
-      teacherToken
-    } = await createLessonMeeting({
-      lesson,
-      studentId: lesson.student,
-      teacherId: thread.teacher
-    });
-
+  /* =========================
+     CLOSE OTHER THREADS
+  ========================== */
 
   await Thread.updateMany(
-    { lesson: thread.lesson, _id: { $ne: threadId } },
+    { lesson: lesson._id, _id: { $ne: threadId } },
     { status: "closed" }
   );
 
-  if (io){
-    io.to(threadId.toString()).emit("offerAccepted", {
+  /* =========================
+     REALTIME
+  ========================== */
+
+  if (io) {
+
+    io.to(threadId).emit("offerAccepted", {
       price: message.price,
-      teacher: thread.teacher
+      acceptedBy: req.user._id
     });
-    io.to(threadId.toString()).emit("lessonApproved", {
-      meetingDetails: {
-        meetingRoomId,
-        studentToken,
-        teacherToken
-      }
+
+    io.to(threadId).emit("lessonApproved", {
+      meetingRoomId,
+      studentToken,
+      teacherToken
     });
+
   }
 
-  res.json({ 
+  res.status(200).json({
     status: "success",
     data: {
       price: message.price,
       teacher: thread.teacher,
-      message,
       meetingDetails: {
         meetingRoomId,
         studentToken,
@@ -265,6 +353,7 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
       }
     }
   });
+
 });
 
 
@@ -282,6 +371,9 @@ exports.rejectOffer = asyncHandler(async (req, res, next) => {
   if (!message)
     return next(new ApiError("Message not found", 404));
 
+  if (message.type !== "offer")
+    return next(new ApiError("Only offers can be rejected", 400));
+
   const thread = message.thread;
 
   const isStudent = thread.student.equals(req.user._id);
@@ -297,6 +389,43 @@ exports.rejectOffer = asyncHandler(async (req, res, next) => {
     io.to(thread._id.toString()).emit("offerRejected", {
       messageId
     });
+    io.to(thread._id.toString()).emit("negotiationStatus", {
+      status: "offer_rejected",
+      messageId
+    });
   }
   res.json({ status: "success" });
+});
+
+exports.cancelNegotiation = asyncHandler(async (req,res,next)=>{
+
+  const io = getIO();
+
+  const {threadId} = req.params;
+
+  const thread = await Thread.findById(threadId);
+
+  if(!thread)
+    return next(new ApiError("Thread not found",404));
+  
+  if (thread.status !== "negotiating")
+    return next(new ApiError("Negotiation already closed", 400));
+
+  const isStudent = thread.student.equals(req.user._id);
+  const isTeacher = thread.teacher.equals(req.user._id);
+
+  if(!isStudent && !isTeacher)
+  return next(new ApiError("Not allowed",403));
+
+  thread.status = "canceled";
+  await thread.save();
+
+  if(io){
+    io.to(threadId).emit("negotiationCanceled",{
+      threadId,
+      canceledBy:req.user._id
+    });
+  }
+
+  res.status(200).json({status:"success"});
 });
