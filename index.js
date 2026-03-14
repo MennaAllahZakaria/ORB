@@ -19,8 +19,7 @@ const globalError = require("./middleware/errorMiddleware");
 const dbConnection = require("./config/database");
 const { initSocket } = require("./config/socket");
 
-const { startLessonReminderCron } = require("./corn/lessonReminderCron");
-const { checkNegotiationTimeout } = require("./corn/negotiationTimeoutServiceCorn");
+const { initializeCronJobs } = require("./corn/cornJobs");
 
 const app = express();
 
@@ -46,11 +45,9 @@ app.use(globalError);
 const server = http.createServer(app);
 initSocket(server);
 
-//startLessonReminderCron();
+/* CRON JOBS */
+initializeCronJobs();
 
-cron.schedule("* * * * *", async () => {
-  await checkNegotiationTimeout();
-});
 
 const PORT = process.env.PORT || 8000;
 
