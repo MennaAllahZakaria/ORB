@@ -82,7 +82,7 @@ const lessonSchema = new mongoose.Schema(
     ===================== */
     status: {
       type: String,
-      enum: ["pending", "approved", "completed", "canceled" , "problem"],
+      enum: ["pending", "approved", "completed", "canceled" , "problem" , "expired"],
       default: "pending",
     },
 
