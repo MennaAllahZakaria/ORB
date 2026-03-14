@@ -1,7 +1,7 @@
 const Lesson = require("../models/lessonModel");
 const ApiError = require("./apiError");
 
-module.exports = async function checkTeacherAvailability(teacherId, requestedDate, duration) {
+exports.checkTeacherAvailability = async (teacherId, requestedDate, duration) => {
 
   const start = new Date(requestedDate);
   const end = new Date(start.getTime() + duration * 60000);
