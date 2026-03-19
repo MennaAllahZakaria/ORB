@@ -688,7 +688,8 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
     match.$or = [
       { status: "pending" },
       { status: "approved", paymentStatus: "unpaid" },
-      { status: "approved", paymentStatus: "paid" }
+      { status: "approved", paymentStatus: "paid" },
+      { status: "canceled", canceledBy: "teacher" }
     ];
 
   } else if (user.role === "teacher") {
@@ -770,6 +771,16 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
                   ]
                 },
                 then: "confirmed"
+              },
+              {
+                case: {
+                  $and: [
+                    { $eq: [user.role, "student"] },
+                    { $eq: ["$status", "canceled"] },
+                    { $eq: ["$canceledBy", "teacher"] }
+                  ]
+                },
+                then: "cancelled_by_teacher"
               },
 
               /* ===== TEACHER STATES ===== */
@@ -948,7 +959,7 @@ exports.cancelLessonRequest = asyncHandler(async (req, res, next) => {
       return next(new ApiError("Lesson already canceled", 400));
 
     lesson.status = "canceled";
-    lesson.cancelledBy = "student";
+    lesson.canceledBy = "student";
 
     await lesson.save();
 
@@ -982,7 +993,7 @@ exports.cancelLessonRequest = asyncHandler(async (req, res, next) => {
 
     lesson.acceptedTeacher = null;
     lesson.status = "pending";
-    lesson.cancelledBy = "teacher";
+    lesson.canceledBy = "teacher";
 
     await lesson.save();
 

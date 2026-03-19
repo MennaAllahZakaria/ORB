@@ -97,7 +97,7 @@ const lessonSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
-    cancelledBy: {
+    canceledBy: {
       type: String,
       enum: ["student", "teacher"]
     },
