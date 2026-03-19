@@ -687,7 +687,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
 
     match.$or = [
       { status: "pending" },
-      { status: "approved", paymentStatus: "pending" },
+      { status: "approved", paymentStatus: "unpaid" },
       { status: "approved", paymentStatus: "paid" }
     ];
 
@@ -755,7 +755,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
                   $and: [
                     { $eq: [user.role, "student"] },
                     { $eq: ["$status", "approved"] },
-                    { $eq: ["$paymentStatus", "pending"] }
+                    { $eq: ["$paymentStatus", "unpaid"] }
                   ]
                 },
                 then: "awaiting_payment"
