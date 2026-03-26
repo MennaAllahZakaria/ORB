@@ -862,6 +862,9 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
         durationInMinutes: 1,
         requestedDate: 1,
         meetingRoomId: 1,
+        meetingStatus: 1,
+        zegoTokenForStudent:1,
+        zegoTokenForTeacher:1,
         paymentStatus: 1,
         lessonState: 1,
 
