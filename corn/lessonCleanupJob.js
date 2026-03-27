@@ -1,13 +1,13 @@
 const cron = require("node-cron");
 const Lesson = require("../models/lessonModel");
 
-const runLessonCleanupJob = async () => {
+exports.runLessonCleanupJob = async () => {
 
     try {
 
       const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
 
-      await Lesson.updateMany(
+      const result = await Lesson.updateMany(
         {
             status: "pending",
             acceptedTeacher: null,
@@ -27,6 +27,3 @@ const runLessonCleanupJob = async () => {
     }
 
   };
-
-
-module.exports = runLessonCleanupJob;
