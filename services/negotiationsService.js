@@ -8,7 +8,6 @@ const ApiError = require("../utils/apiError");
 const { sendNegotiationNotification } =
   require("../services/negotiationNotificationService");
 
-const { createLessonMeeting } = require("./zegoService");
 const { getIO } = require("../config/socket");
 
 // =======================================================
@@ -303,15 +302,6 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
     { new: true }
   );
 
-  const {
-    meetingRoomId,
-    studentToken,
-    teacherToken
-  } = await createLessonMeeting({
-    lesson,
-    studentId: lesson.student,
-    teacherId: thread.teacher
-  });
 
   /* =========================
      CLOSE OTHER THREADS
@@ -333,11 +323,6 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
       acceptedBy: req.user._id
     });
 
-    io.to(threadId).emit("lessonApproved", {
-      meetingRoomId,
-      studentToken,
-      teacherToken
-    });
 
   }
 
@@ -346,11 +331,6 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
     data: {
       price: message.price,
       teacher: thread.teacher,
-      meetingDetails: {
-        meetingRoomId,
-        studentToken,
-        teacherToken
-      }
     }
   });
 

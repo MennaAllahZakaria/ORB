@@ -5,6 +5,7 @@ const {
     getLessonRequestsForTeacher,
     respondToLessonRequest,
     chooseTeacher,
+    createMeeting,
     getInterestedTeachers,
     getLessons,
     getLessonDetailsForStudent,
@@ -47,6 +48,13 @@ router.post(
     "/:lessonId/choose-teacher/:teacherId", allowedTo("student"),
     chooseTeacherValidator,
     chooseTeacher
+);
+
+// ================= STUDENT OR TEACHER - CREATE MEETING FOR LESSON =================
+router.post(
+    "/:lessonId/create-meeting", allowedTo("student", "teacher"),
+    lessonIdValidator,
+    createMeeting
 );
 
 // ================= STUDENT - GET INTERESTED TEACHERS FOR LESSON =================

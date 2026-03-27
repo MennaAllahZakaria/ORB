@@ -439,22 +439,10 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
 
   if (thread?.agreedPrice) {
     lesson.price = thread.agreedPrice;
+    await lesson.save();
+
   }
 
-
-  /* ======================================
-     CREATE MEETING (ZEGO SERVICE)
-  ======================================= */
-
-  const {
-    meetingRoomId,
-    studentToken,
-    teacherToken
-  } = await createLessonMeeting({
-    lesson,
-    studentId: req.user._id,
-    teacherId
-  });
 
   /* ======================================
      CLOSE OTHER THREADS IF EXIST
@@ -477,11 +465,6 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
     message: "Teacher selected successfully.",
     data: {
       lesson,
-      meetingRoomId,
-      tokens: {
-        student: studentToken,
-        teacher: teacherToken
-      }
     }
   });
 
@@ -496,6 +479,68 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
       req.user
     );
   });
+
+});
+// =======================================================
+//  CREATE ZEGOCALL MEETING FOR LESSON WHEN STUDENT OR TEACHER STARTS THE LESSON
+// =======================================================
+
+
+exports.createMeeting = asyncHandler(async (req, res, next) => {
+    const { lessonId } = req.params;
+
+    const lesson = await Lesson.findById(lessonId);
+
+    if (!lesson) return next(new ApiError("Lesson not found", 404));
+    if (!isSameId(lesson.student, req.user._id) && !isSameId(lesson.acceptedTeacher, req.user._id)) {
+      return next(
+        new ApiError("You are not authorized to create meeting for this lesson", 403)
+      );
+    }
+
+    if (lesson.status !== "approved") {
+      return next(new ApiError("Lesson is not approved yet", 400));
+    }
+
+    if (!lesson.acceptedTeacher) {
+      return next(new ApiError("No teacher assigned yet", 400));
+    }
+ 
+    if (lesson.meetingRoomId) {
+      return res.status(200).json({
+        status: "success",
+        data: {
+          meetingRoomId: lesson.meetingRoomId,
+          tokens: {
+            student: lesson.zegoTokenForStudent,
+            teacher: lesson.zegoTokenForTeacher
+          }
+        }
+      });
+    }
+
+    else {
+      const {
+        meetingRoomId,
+        studentToken,
+        teacherToken
+      } = await createLessonMeeting({
+        lesson,
+        studentId: lesson.student,
+        teacherId: lesson.acceptedTeacher
+      });
+
+      res.status(200).json({
+        status: "success",
+        data: {
+          meetingRoomId,
+          tokens: {
+            student: studentToken,
+            teacher: teacherToken
+          }
+        }
+      });
+  }
 
 });
 
@@ -618,7 +663,7 @@ exports.getLessonDetailsForStudent = asyncHandler(async (req, res, next) => {
     .populate("student", "firstName lastName email studentProfile imageProfile")
     .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating imageProfile")
     .populate("interestedTeachers.teacher", "firstName lastName email teacherProfile.avgRating imageProfile")
-    .select("student acceptedTeacher interestedTeachers title subject price durationInMinutes requestedDate  meetingRoomId zegoTokenForStudent finalCompletionStatus");
+    .select("student acceptedTeacher interestedTeachers title subject price durationInMinutes requestedDate  finalCompletionStatus");
 
   if (!lesson) return next(new ApiError("Lesson not found", 404));
   const isStudent = isSameId(lesson.student._id, req.user._id);
@@ -647,7 +692,7 @@ exports.getLessonDetailsForTeacher = asyncHandler(async (req, res, next) => {
       ]
     })
     .populate("student", "firstName lastName email studentProfile imageProfile")
-    .select("student  title subject price durationInMinutes requestedDate  meetingRoomId zegoTokenForTeacher finalCompletionStatus");
+    .select("student  title subject price durationInMinutes requestedDate finalCompletionStatus");
 
 
   if (!lesson) return next(new ApiError("Lesson not found", 404));
@@ -861,10 +906,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
         price: 1,
         durationInMinutes: 1,
         requestedDate: 1,
-        meetingRoomId: 1,
         meetingStatus: 1,
-        zegoTokenForStudent:1,
-        zegoTokenForTeacher:1,
         paymentStatus: 1,
         lessonState: 1,
 
