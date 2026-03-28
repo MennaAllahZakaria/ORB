@@ -9,18 +9,16 @@ const crypto = require("crypto");
  * @param {number} effectiveTimeInSeconds
  * @returns {string}
  */
-exports.generateZegoToken = ( userId, roomId, effectiveTimeInSeconds = 3600) => {
+const jwt = require("jsonwebtoken");
+
+exports.generateZegoToken = (userId, roomId) => {
   const payload = {
-    app_id: process.env.ZEGO_APP_ID,
+    app_id: Number(process.env.ZEGO_APP_ID),
     user_id: userId,
-    ctime: Math.floor(Date.now() / 1000),
-    expire: effectiveTimeInSeconds,
-    nonce: Math.floor(Math.random() * 999999),
     room_id: roomId,
   };
 
-  const text = JSON.stringify(payload);
-  const cipher = crypto.createHmac("sha256", process.env.ZEGO_SERVER_SECRET).update(text).digest("hex");
-  const token = Buffer.from(`${text}.${cipher}`).toString("base64");
-  return token;
-};
+  return jwt.sign(payload, process.env.ZEGO_SERVER_SECRET, {
+    expiresIn: "1h",
+  });
+}; 
