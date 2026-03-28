@@ -1,24 +1,29 @@
-const crypto = require("crypto");
-
-/**
- * Generate Zego Token
- * @param {number} appId
- * @param {string} serverSecret
- * @param {string} userId
- * @param {string} roomId
- * @param {number} effectiveTimeInSeconds
- * @returns {string}
- */
-const jwt = require("jsonwebtoken");
+const { generateToken04 } = require("./zegoServerAssistant");
 
 exports.generateZegoToken = (userId, roomId) => {
-  const payload = {
-    app_id: Number(process.env.ZEGO_APP_ID),
-    user_id: userId,
+  const appID = Number(process.env.ZEGO_APP_ID);
+  const secret = process.env.ZEGO_SERVER_SECRET;
+
+  const effectiveTimeInSeconds = 3600;
+
+  const payloadObject = {
     room_id: roomId,
+    privilege: {
+      1: 1, // login room
+      2: 1, // publish stream
+    },
+    stream_id_list: null,
   };
 
-  return jwt.sign(payload, process.env.ZEGO_SERVER_SECRET, {
-    expiresIn: "1h",
-  });
-}; 
+  const payload = JSON.stringify(payloadObject);
+
+  const token = generateToken04(
+    appID,
+    userId,
+    secret,
+    effectiveTimeInSeconds,
+    payload
+  );
+
+  return token;
+};
