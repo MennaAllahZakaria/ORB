@@ -723,9 +723,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
      BASE MATCH
   =============================== */
 
-  let match = {
-    meetingStatus: { $in: ["upcoming", "ongoing"] }
-  };
+  let match = {};
 
   if (user.role === "student") {
 
@@ -747,7 +745,8 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
       },
       {
         status: "approved",
-        acceptedTeacher: user._id
+        acceptedTeacher: user._id,
+        paymentStatus: "paid" 
       }
     ];
 
@@ -773,19 +772,47 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
     { $match: match },
 
     /* ===============================
+       TIME CALCULATIONS
+    =============================== */
+
+    {
+      $addFields: {
+        lessonEndTime: {
+          $add: [
+            "$requestedDate",
+            { $multiply: ["$durationInMinutes", 60000] }
+          ]
+        }
+      }
+    },
+
+    {
+      $addFields: {
+        expireAt: {
+          $add: ["$lessonEndTime", 2 * 60 * 60 * 1000] // +2 hours
+        }
+      }
+    },
+
+    {
+      $match: {
+        $expr: {
+          $gt: ["$expireAt", new Date()]
+        }
+      }
+    },
+
+    /* ===============================
        LESSON STATE
     =============================== */
 
     {
       $addFields: {
-
         lessonState: {
-
           $switch: {
-
             branches: [
 
-              /* ===== STUDENT STATES ===== */
+              /* ===== STUDENT ===== */
 
               {
                 case: {
@@ -818,6 +845,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
                 },
                 then: "confirmed"
               },
+
               {
                 case: {
                   $and: [
@@ -829,7 +857,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
                 then: "cancelled_by_teacher"
               },
 
-              /* ===== TEACHER STATES ===== */
+              /* ===== TEACHER ===== */
 
               {
                 case: {
@@ -852,13 +880,9 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
               }
 
             ],
-
             default: "unknown"
-
           }
-
         }
-
       }
     },
 
@@ -907,7 +931,8 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
         price: 1,
         durationInMinutes: 1,
         requestedDate: 1,
-        meetingStatus: 1,
+        lessonEndTime: 1,
+        expireAt: 1,
         paymentStatus: 1,
         lessonState: 1,
 

@@ -52,20 +52,6 @@ const lessonSchema = new mongoose.Schema(
       required: true,
     },
 
-    offers: [
-      {
-        teacher: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        proposedPrice: Number,
-        message: String,
-        status: {
-          type: String,
-          enum: ["pending", "accepted", "rejected"],
-          default: "pending",
-        },
-        createdAt: { type: Date, default: Date.now },
-        respondedAt: Date,
-      },
-    ],
 
     requestedDate: {
       type: Date,
@@ -181,7 +167,7 @@ const lessonSchema = new mongoose.Schema(
         "under_admin_review",
         "resolved_by_admin"
       ],
-      default: "waiting_second_party",
+      default: "auto_resolved",
     },
 
     disputeFlag: {
