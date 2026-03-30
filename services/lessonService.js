@@ -527,7 +527,8 @@ exports.createMeeting = asyncHandler(async (req, res, next) => {
       } = await createLessonMeeting({
         lesson,
         studentId: lesson.student,
-        teacherId: lesson.acceptedTeacher
+        teacherId: lesson.acceptedTeacher,
+        effectiveTimeInSeconds: (lesson.durationInMinutes * 60) + 3600  // Convert minutes to seconds and add 1 hour buffer
       });
 
       res.status(200).json({

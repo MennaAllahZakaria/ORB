@@ -1,10 +1,10 @@
 const { generateToken04 } = require("./zegoServerAssistant");
 
-exports.generateZegoToken = (userId, roomId) => {
+exports.generateZegoToken = (userId, roomId , effectiveTimeInSeconds = 7200) => {
   const appID = Number(process.env.ZEGO_APP_ID);
   const secret = process.env.ZEGO_SERVER_SECRET;
 
-  const effectiveTimeInSeconds = 3600;
+  const effectiveTimeInSeconds = effectiveTimeInSeconds || 7200; // default 2 hours
 
   const payloadObject = {
     room_id: roomId,

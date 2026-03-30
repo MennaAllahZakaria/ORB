@@ -15,19 +15,22 @@ const isSameId = (a, b) => a && b && a.toString() === b.toString();
 exports.createLessonMeeting = async ({
   lesson,
   studentId,
-  teacherId
+  teacherId,
+  effectiveTimeInSeconds
 }) => {
 
   const meetingRoomId = `lesson_${uuidv4()}`;
 
   const teacherToken = generateZegoToken(
     teacherId.toString(),
-    meetingRoomId
+    meetingRoomId,
+    effectiveTimeInSeconds
   );
 
   const studentToken = generateZegoToken(
     studentId.toString(),
-    meetingRoomId
+    meetingRoomId,
+    effectiveTimeInSeconds
   );
 
   lesson.meetingRoomId = meetingRoomId;
