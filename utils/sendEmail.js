@@ -1,6 +1,14 @@
 const { google } = require("googleapis");
 
-const sendEmail = async (Email, subject, message) => {
+const sendEmail = async ({ Email, subject, message }) => {
+  if (!Email || typeof Email !== "string") {
+    throw new Error("Invalid email address");
+  }
+
+  if (!subject || !message) {
+    throw new Error("Missing subject or message");
+  }
+
   const oAuth2Client = new google.auth.OAuth2(
     process.env.CLIENT_ID,
     process.env.CLIENT_SECRET,
@@ -15,10 +23,15 @@ const sendEmail = async (Email, subject, message) => {
 
   const rawMessage = Buffer.from(
     `From: ORB <${process.env.EMAIL_USER}>
-      To: ${Email}
-      Subject: ${subject}
-                ${message}`
-  ).toString("base64");
+To: ${Email}
+Subject: ${subject}
+
+${message}`
+  )
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 
   await gmail.users.messages.send({
     userId: "me",
