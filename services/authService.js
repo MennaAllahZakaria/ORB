@@ -105,7 +105,7 @@ exports.signup = asyncHandler(async (req, res, next) => {
     });
   } catch (err) {
     console.error("Error sending signup verification email:", err.message);
-    return next(new ApiError("Error sending email", 500));
+    return next(new ApiError(err.message, 500));
   }
 });
 
