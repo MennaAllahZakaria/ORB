@@ -47,66 +47,70 @@ exports.signup = asyncHandler(async (req, res, next) => {
     return next(new ApiError("Email is already registered", 400));
   }
 
-  // Prepare teacherProfile & imageProfile from upload middleware
-  req.body.teacherProfile = req.body.teacherProfile || {};
-  req.body.imageProfile = req.body.imageProfile || "";
+  const userData = { ...req.body };
+
+  if (password) {
+    const saltRounds = getSaltRounds();
+    userData.password = await bcrypt.hash(password, saltRounds);
+  }
+
+  // Prepare teacher data
+  userData.teacherProfile = userData.teacherProfile || {};
+  userData.imageProfile = userData.imageProfile || "";
 
   if (role === "teacher" && req.files?.certificate) {
-    req.body.teacherProfile.certificate = req.certificateUrl;
+    userData.teacherProfile.certificate = req.certificateUrl;
   }
 
   if (req.files?.imageProfile) {
-    req.body.imageProfile = req.imageProfileUrl;
+    userData.imageProfile = req.imageProfileUrl;
   }
 
-  // Remove any previous verification attempts for this email
+  // Clear any existing verification requests for this email to avoid conflicts
   await Verification.deleteMany({ email, type: "emailVerification" });
 
-  // Generate verification code
+  // generate code
   const verificationCode = generateSixDigitCode();
-  const expirationTime = Date.now() + 10 * 60 * 1000; // 10 minutes
+  const expirationTime = Date.now() + 10 * 60 * 1000;
 
   const hashedCode = await bcrypt.hash(verificationCode, 12);
 
   const message = `
-                    Hi ${req.body.firstName || ""} ${req.body.lastName || ""},
-                    Your verification code is:
-                    ${verificationCode}
-                    (valid for 10 minutes)
-                    `;
+                  Hi ${userData.firstName || ""} ${userData.lastName || ""},
+
+                  Your verification code is:
+                  ${verificationCode}
+
+                  (valid for 10 minutes)
+                  `;
+
+  
+  await Verification.create({
+    email,
+    code: hashedCode,
+    expiresAt: new Date(expirationTime),
+    type: "emailVerification",
+    tempUserData: userData,
+  });
 
   try {
-    // Send verification email
     await sendEmail({
       Email: email,
       subject: "Email Verification Code",
       message,
     });
-
-    // Prepare temp user data (without plain password)
-    const { password, ...userData } = req.body;
-    if (password) {
-      const saltRounds = getSaltRounds();
-      userData.password = await bcrypt.hash(password, saltRounds);
-    }
-
-    // Store verification with temp user data
-    await Verification.create({
-      email,
-      code: hashedCode,
-      expiresAt: new Date(expirationTime),
-      type: "emailVerification",
-      tempUserData: userData,
-    });
-
-    res.status(200).json({
-      status: "success",
-      message: "Verification code sent to your email.",
-    });
   } catch (err) {
-    console.error("Error sending signup verification email:", err.message);
+    console.error("Email sending failed:", err);
+
+    await Verification.deleteMany({ email, type: "emailVerification" });
+
     return next(new ApiError("Failed to send verification email", 500));
   }
+
+  res.status(200).json({
+    status: "success",
+    message: "Verification code sent to your email.",
+  });
 });
 
 // ==================== VERIFY EMAIL ====================
