@@ -12,6 +12,14 @@ oAuth2Client.setCredentials({
 });
 
 const sendEmail = async (options) => {
+  console.log("STEP 1");
+  const accessTokenResponse = await oAuth2Client.getAccessToken();
+  console.log("STEP 2");
+
+  const accessToken = accessTokenResponse?.token;
+  console.log("TOKEN:", accessToken);
+
+  console.log("STEP 3");
   try {
     const accessTokenResponse = await Promise.race([
       oAuth2Client.getAccessToken(),
