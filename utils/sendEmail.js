@@ -1,6 +1,6 @@
 const { google } = require("googleapis");
 
-const sendEmail = async (to, subject, message) => {
+const sendEmail = async (Email, subject, message) => {
   const oAuth2Client = new google.auth.OAuth2(
     process.env.CLIENT_ID,
     process.env.CLIENT_SECRET,
@@ -15,7 +15,7 @@ const sendEmail = async (to, subject, message) => {
 
   const rawMessage = Buffer.from(
     `From: ORB <${process.env.EMAIL_USER}>
-      To: ${to}
+      To: ${Email}
       Subject: ${subject}
                 ${message}`
   ).toString("base64");
