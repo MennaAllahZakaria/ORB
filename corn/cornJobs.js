@@ -11,9 +11,9 @@ exports.initializeCronJobs = () => {
   });
 
   // runs every minute
-  cron.schedule("* * * * *", async () => {
-    await checkNegotiationTimeout();
-  });
+  // cron.schedule("* * * * *", async () => {
+  //   await checkNegotiationTimeout();
+  // });
 
   // runs every 5 minutes
   //cron.schedule("*/5 * * * *", async () => {
