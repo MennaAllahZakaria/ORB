@@ -18,7 +18,7 @@ exports.createSupportRequest = asyncHandler(async (req, res, next) => {
     if (!message) {
     return next(new ApiError("message is required", 400));
   }
-    req.body.image = req.body.image || "";
+    req.body.image = req.body.req.imageUrl || "";
 
     const supportRequest = await Support.create({
     user: req.user._id,
@@ -58,7 +58,7 @@ exports.updateSupportRequest = asyncHandler(async (req, res, next) => {
     supportRequest.problemType = req.body.problemType || supportRequest.problemType;
     supportRequest.message = req.body.message || supportRequest.message;
     if (req.body.image !== undefined) {
-    supportRequest.image = req.body.image;
+    supportRequest.image = req.body.req.imageUrl || supportRequest.image;
     }
     await supportRequest.save();
     res.status(200).json({

@@ -19,7 +19,11 @@ const storage = new CloudinaryStorage({
     } else if (file.fieldname === "proofImage"){
       folder = "complete_lessons_proof_images";
       resource_type = (file.mimetype.startsWith("image/")) ? "image" : "raw";
+    }  else if (file.fieldname === "image") {
+      folder = "support_images";
+      resource_type = (file.mimetype.startsWith("image/")) ? "image" : "raw";
     }
+
 
     return {
       folder,
@@ -53,6 +57,13 @@ const fileFilter = (req, file, cb) => {
     return cb(new ApiError("Only PDF & image allowed for proofImage", 400), false);
   }
 
+  if (
+    file.fieldname === "image" &&
+    !file.mimetype.startsWith("image/")
+  ) {
+    return cb(new ApiError("Only images allowed for image", 400), false);
+  }
+
   cb(null, true);
 };
 
@@ -67,7 +78,8 @@ const upload = multer({
 exports.uploadImageAndFile = upload.fields([
   { name: "imageProfile", maxCount: 1 },
   { name: "certificate", maxCount: 1 },
-  { name: "proofImage" , maxCount:1}
+  { name: "proofImage" , maxCount:1},
+  { name: "image", maxCount: 1 }
 ]);
 
 // ميدل وير لإضافة اللينكات في req
@@ -83,6 +95,9 @@ exports.attachUploadedLinks = (req, res, next) => {
       req.proofImageUrl = req.files.proofImage[0].path;
     }
 
+    if (req.files?.image?.[0]) {
+      req.imageUrl = req.files.image[0].path;
+    }
 
     next();
   } catch (err) {
