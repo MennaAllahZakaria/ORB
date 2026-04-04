@@ -552,3 +552,27 @@ exports.updateImageProfile = asyncHandler(async (req, res, next) => {
     data: { imageProfile: user.imageProfile },
   });
 });
+
+exports.updateProfile = asyncHandler(async (req, res, next) => {
+  const allowedFields = ["firstName", "lastName", "phone", "teacherProfile.school" , "teacherProfile.pricePerHour" , "teacherProfile.bio" , "teacherProfile.experienceYears" , "teacherProfile.education_system","teacherProfile.academic_stages" , "teacherProfile.subjects" , "studentProfile.grade", "studentProfile.education_system", "studentProfile.school"];
+  const updates = {};
+  allowedFields.forEach((field) => {
+    if (req.body[field]) {
+      updates[field] = req.body[field];
+    }
+  });
+
+  if (Object.keys(updates).length === 0) {
+    return next(new ApiError("No valid fields provided for update", 400));
+  }
+
+  const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true });
+  if (!user) {
+    return next(new ApiError("User not found", 404));
+  }
+  res.status(200).json({
+    status: "success",
+    message: "Profile updated successfully.",
+    data: { user },
+  });
+});

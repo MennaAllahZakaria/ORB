@@ -11,7 +11,8 @@ const {
     changePassword,
     updatePreferredLanguage,
     getLoggedInUser,
-    updateImageProfile
+    updateImageProfile,
+    updateProfile
 } = require("../services/authService");
 
 const {
@@ -69,4 +70,8 @@ router.get("/me",protect,getLoggedInUser);
 
 //================== UPDATE IMAGE PROFILE ===================
 router.patch("/updateImageProfile", protect, uploadImageAndFile, attachUploadedLinks, updateImageProfile);
+
+//================== UPDATE PROFILE ===================
+router.patch("/updateProfile", protect,  updateProfile);
+
 module.exports = router;
