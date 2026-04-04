@@ -746,7 +746,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
       {
         status: "approved",
         acceptedTeacher: user._id,
-        paymentStatus: "paid" 
+        // paymentStatus: "paid"
       }
     ];
 
@@ -840,7 +840,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
                   $and: [
                     { $eq: [user.role, "student"] },
                     { $eq: ["$status", "approved"] },
-                    { $eq: ["$paymentStatus", "paid"] }
+                    //{ $eq: ["$paymentStatus", "paid"] }
                   ]
                 },
                 then: "confirmed"
@@ -929,6 +929,26 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
         title: 1,
         subject: 1,
         price: 1,
+        // get te teacher proposed price if exist in interestedTeachers array
+        proposedPrice: {
+          $let: {
+            vars: {
+              teacherIndex: {
+                $indexOfArray: [
+                  "$interestedTeachers.teacher",
+                  user.role === "teacher" ? user._id : "$acceptedTeacher._id"
+                ]
+              }
+            },
+            in: {
+              $cond: [
+                { $gte: ["$$teacherIndex", 0] },
+                { $arrayElemAt: ["$interestedTeachers.proposedPrice", "$$teacherIndex"] },
+                "$price"
+              ]
+            }
+          }
+        },
         durationInMinutes: 1,
         requestedDate: 1,
         lessonEndTime: 1,
