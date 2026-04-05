@@ -56,7 +56,7 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Missing event or room_id" });
   }
 
-  let lesson = await Lesson.findOne({ meetingRoomId: room_id })
+  const lesson = await Lesson.findOne({ meetingRoomId: room_id })
     .populate("student", "firstName lastName email fcmToken preferredLang")
     .populate(
       "acceptedTeacher",
@@ -74,31 +74,34 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
   const zegoUserId = String(user_id || "").trim();
   const eventDate = event_time ? new Date(event_time * 1000) : new Date();
 
+  // تأكيد array
   if (!Array.isArray(lesson.activeParticipants)) {
     lesson.activeParticipants = [];
   }
 
   switch (event) {
+
     /* ============================
        1️⃣ USER JOINED
     ============================ */
     case "RoomUserJoin": {
+
+      // add user (avoid duplicates)
       if (!lesson.activeParticipants.includes(zegoUserId)) {
         lesson.activeParticipants.push(zegoUserId);
       }
 
-      if (lesson.meetingStatus === "upcoming") {
-        lesson.meetingStatus = "ongoing";
+      // ensure unique
+      lesson.activeParticipants = [...new Set(lesson.activeParticipants)];
+
+      // set start time مرة واحدة بس
+      if (!lesson.meetingStartTime) {
         lesson.meetingStartTime = eventDate;
+        lesson.meetingStatus = "ongoing";
       }
 
-      await lesson.save();
-
-      // First participant joined → notify
-      if (
-        lesson.meetingStatus === "ongoing" &&
-        lesson.activeParticipants.length === 1
-      ) {
+      // notification مرة واحدة
+      if (!lesson.startNotificationSent) {
         await sendLessonNotification([teacher, student], {
           titleEn: "🎥 The lesson has started!",
           titleAr: "🎥 بدأت الحصة الآن!",
@@ -107,7 +110,11 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
           type: "lesson_started",
           lessonId: lesson._id,
         });
+
+        lesson.startNotificationSent = true;
       }
+
+      await lesson.save();
       break;
     }
 
@@ -115,72 +122,92 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
        2️⃣ USER LEFT
     ============================ */
     case "RoomUserLeave": {
+
       lesson.activeParticipants = lesson.activeParticipants.filter(
         (id) => id !== zegoUserId
       );
 
-      const roomEmpty =
-        lesson.activeParticipants.length === 0 &&
-        lesson.meetingStatus !== "finished";
-
-      if (!roomEmpty) {
-        await lesson.save();
-        break;
-      }
-
-      // Room ended
-      lesson.meetingEndTime = eventDate;
-      lesson.meetingStatus = "finished";
-
-      const wasApproved = lesson.status === "approved";
-      if (wasApproved) {
-        lesson.status = "completed";
-      }
-
       await lesson.save();
 
-      // 🎁 Student points
-      if (wasApproved && student?._id) {
-        try {
-          await addPoints(student._id, 20, "Lesson completed");
-        } catch (err) {
-          console.error("[Points][Zego]", err.message);
-        }
-      }
+      // لو الغرفة فاضية → نستنى شوية (anti race condition)
+      if (lesson.activeParticipants.length === 0) {
 
-      /* ============================
-         💸 AUTO PAYOUT (SAFE)
-      ============================ */
-      try {
-        if (
-          lesson.status === "completed" &&
-          lesson.paymentStatus === "paid" &&
-          lesson.paymentStatus !== "released"
-        ) {
-          console.log(
-            `[Zego] Auto payout triggered for lesson ${lesson._id}`
-          );
-          await _releasePaymentForLesson(lesson);
-        }
-      } catch (err) {
-        console.error(
-          "[Payout][Zego] Failed:",
-          err.response?.data || err.message
-        );
-      }
+        setTimeout(async () => {
+          const freshLesson = await Lesson.findById(lesson._id);
 
-      await sendLessonNotification([teacher, student], {
-        titleEn: "✅ The lesson has ended",
-        titleAr: "✅ انتهت الحصة",
-        bodyEn: "The lesson has finished successfully.",
-        bodyAr: "انتهت الحصة بنجاح.",
-        type: "lesson_ended",
-        lessonId: lesson._id,
-      });
+          if (!freshLesson) return;
+
+          // لو لسه فاضية
+          if (
+            freshLesson.activeParticipants.length === 0 &&
+            freshLesson.meetingStatus !== "finished"
+          ) {
+
+            freshLesson.meetingEndTime = new Date();
+            freshLesson.meetingStatus = "finished";
+
+            await freshLesson.save();
+
+            /* ============================
+               🎁 Points
+            ============================ */
+            if (freshLesson.student?._id) {
+              try {
+                await addPoints(freshLesson.student._id, 20, "Lesson completed");
+              } catch (err) {
+                console.error("[Points][Zego]", err.message);
+              }
+            }
+
+            /* ============================
+               💸 AUTO PAYOUT
+            ============================ */
+            try {
+              if (freshLesson.paymentStatus === "paid") {
+                console.log(`[Zego] Auto payout for lesson ${freshLesson._id}`);
+
+                await _releasePaymentForLesson(freshLesson);
+
+                freshLesson.paymentStatus = "released";
+                await freshLesson.save();
+              }
+            } catch (err) {
+              console.error(
+                "[Payout][Zego]",
+                err.response?.data || err.message
+              );
+            }
+
+            /* ============================
+               🔔 Notification
+            ============================ */
+            if (!freshLesson.endNotificationSent) {
+              await sendLessonNotification(
+                [freshLesson.acceptedTeacher, freshLesson.student],
+                {
+                  titleEn: "✅ The lesson has ended",
+                  titleAr: "✅ انتهت الحصة",
+                  bodyEn: "The lesson has finished successfully.",
+                  bodyAr: "انتهت الحصة بنجاح.",
+                  type: "lesson_ended",
+                  lessonId: freshLesson._id,
+                }
+              );
+
+              freshLesson.endNotificationSent = true;
+              await freshLesson.save();
+            }
+          }
+
+        }, 30000); // ⏱️ 30 ثانية buffer
+      }
 
       break;
     }
 
+    /* ============================
+       DEFAULT
+    ============================ */
     default:
       console.log("[Zego] Unhandled event:", event);
   }

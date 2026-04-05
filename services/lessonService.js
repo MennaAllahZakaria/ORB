@@ -712,6 +712,7 @@ exports.getLessonDetailsForTeacher = asyncHandler(async (req, res, next) => {
 exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
 
   const user = req.user;
+  const role = user.role;
 
   const page = Math.max(1, +req.query.page || 1);
   const limit = Math.min(50, +req.query.limit || 10);
@@ -725,7 +726,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
 
   let match = {};
 
-  if (user.role === "student") {
+  if (role === "student") {
 
     match.student = user._id;
 
@@ -736,17 +737,18 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
       { status: "canceled", canceledBy: "teacher" }
     ];
 
-  } else if (user.role === "teacher") {
+  } else if (role === "teacher") {
 
     match.$or = [
       {
         status: "pending",
-        "interestedTeachers.teacher": user._id
+        "interestedTeachers.teacher": user._id,
+        acceptedTeacher: null
       },
       {
         status: "approved",
         acceptedTeacher: user._id,
-        // paymentStatus: "paid"
+        paymentStatus: "paid" 
       }
     ];
 
@@ -788,8 +790,16 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
 
     {
       $addFields: {
+        baseEndTime: {
+          $ifNull: ["$meetingEndTime", "$lessonEndTime"]
+        }
+      }
+    },
+
+    {
+      $addFields: {
         expireAt: {
-          $add: ["$lessonEndTime", 2 * 60 * 60 * 1000] // +2 hours
+          $add: ["$baseEndTime", 15 * 60 * 1000] //  15 min
         }
       }
     },
@@ -817,7 +827,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
               {
                 case: {
                   $and: [
-                    { $eq: [user.role, "student"] },
+                    { $eq: [role, "student"] },
                     { $eq: ["$status", "pending"] }
                   ]
                 },
@@ -827,7 +837,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
               {
                 case: {
                   $and: [
-                    { $eq: [user.role, "student"] },
+                    { $eq: [role, "student"] },
                     { $eq: ["$status", "approved"] },
                     { $eq: ["$paymentStatus", "unpaid"] }
                   ]
@@ -838,9 +848,9 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
               {
                 case: {
                   $and: [
-                    { $eq: [user.role, "student"] },
+                    { $eq: [role, "student"] },
                     { $eq: ["$status", "approved"] },
-                    //{ $eq: ["$paymentStatus", "paid"] }
+                    { $eq: ["$paymentStatus", "paid"] }
                   ]
                 },
                 then: "confirmed"
@@ -849,7 +859,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
               {
                 case: {
                   $and: [
-                    { $eq: [user.role, "student"] },
+                    { $eq: [role, "student"] },
                     { $eq: ["$status", "canceled"] },
                     { $eq: ["$canceledBy", "teacher"] }
                   ]
@@ -862,7 +872,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
               {
                 case: {
                   $and: [
-                    { $eq: [user.role, "teacher"] },
+                    { $eq: [role, "teacher"] },
                     { $eq: ["$status", "pending"] }
                   ]
                 },
@@ -872,7 +882,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
               {
                 case: {
                   $and: [
-                    { $eq: [user.role, "teacher"] },
+                    { $eq: [role, "teacher"] },
                     { $eq: ["$status", "approved"] }
                   ]
                 },
@@ -912,7 +922,6 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
         as: "acceptedTeacher"
       }
     },
-
     {
       $unwind: {
         path: "$acceptedTeacher",
@@ -929,26 +938,32 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
         title: 1,
         subject: 1,
         price: 1,
-        // get te teacher proposed price if exist in interestedTeachers array
+
         proposedPrice: {
           $let: {
             vars: {
               teacherIndex: {
                 $indexOfArray: [
                   "$interestedTeachers.teacher",
-                  user.role === "teacher" ? user._id : "$acceptedTeacher._id"
+                  role === "teacher" ? user._id : "$acceptedTeacher._id"
                 ]
               }
             },
             in: {
               $cond: [
                 { $gte: ["$$teacherIndex", 0] },
-                { $arrayElemAt: ["$interestedTeachers.proposedPrice", "$$teacherIndex"] },
+                {
+                  $arrayElemAt: [
+                    "$interestedTeachers.proposedPrice",
+                    "$$teacherIndex"
+                  ]
+                },
                 "$price"
               ]
             }
           }
         },
+
         durationInMinutes: 1,
         requestedDate: 1,
         lessonEndTime: 1,
@@ -959,7 +974,6 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
         "student.firstName": 1,
         "student.lastName": 1,
         "student.email": 1,
-        "student.studentProfile": 1,
         "student.imageProfile": 1,
 
         "acceptedTeacher.firstName": 1,
@@ -979,7 +993,6 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
   ];
 
   const lessons = await Lesson.aggregate(pipeline);
-
   const total = await Lesson.countDocuments(match);
 
   res.status(200).json({

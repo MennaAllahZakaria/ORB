@@ -167,7 +167,7 @@ const lessonSchema = new mongoose.Schema(
         "under_admin_review",
         "resolved_by_admin"
       ],
-      default: "auto_resolved",
+      default: "waiting_second_party",
     },
 
     disputeFlag: {
@@ -183,7 +183,16 @@ const lessonSchema = new mongoose.Schema(
   halfHourReminderSent: {
       type: Boolean,
       default: false
-  }
+  }, 
+  startNotificationSent: {
+    type: Boolean,
+    default: false,
+  },
+
+  endNotificationSent: {
+    type: Boolean,
+    default: false,
+  },
 
 
 
