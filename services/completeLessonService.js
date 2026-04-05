@@ -11,20 +11,21 @@ exports.submitCompletion = asyncHandler(async (req, res, next) => {
   const { lessonId } = req.params;
   const { completionStatus, reasonForIncomplete, description } = req.body;
 
-   let proofImage = req.body.proofImage || "";
-
-   if (req.files?.proofImage) {
-    proofImage = req.proofImageUrl;
-  }
-
+  const proofImage = req.files?.proofImage ? req.proofImageUrl : null;
   const user = req.user;
 
+  // ======================
+  // 1. Validate lesson
+  // ======================
   const lesson = await Lesson.findById(lessonId);
 
   if (!lesson) {
     return next(new ApiError("Lesson not found", 404));
   }
 
+  // ======================
+  // 2. Determine role
+  // ======================
   let role;
 
   if (lesson.student.toString() === user._id.toString()) {
@@ -35,6 +36,9 @@ exports.submitCompletion = asyncHandler(async (req, res, next) => {
     return next(new ApiError("Not authorized for this lesson", 403));
   }
 
+  // ======================
+  // 3. Prevent duplicate submission
+  // ======================
   const existing = await CompleteLesson.findOne({
     lesson: lessonId,
     role,
@@ -44,6 +48,20 @@ exports.submitCompletion = asyncHandler(async (req, res, next) => {
     return next(new ApiError("You already submitted completion", 400));
   }
 
+  // ======================
+  // 4. Validate input
+  // ======================
+  if (!["completed", "incomplete"].includes(completionStatus)) {
+    return next(new ApiError("Invalid completion status", 400));
+  }
+
+  if (completionStatus === "incomplete" && !reasonForIncomplete) {
+    return next(new ApiError("Reason is required for incomplete status", 400));
+  }
+
+  // ======================
+  // 5. Create submission
+  // ======================
   const submission = await CompleteLesson.create({
     lesson: lessonId,
     submittedBy: user._id,
@@ -56,65 +74,81 @@ exports.submitCompletion = asyncHandler(async (req, res, next) => {
 
   const submissions = await CompleteLesson.find({ lesson: lessonId });
 
-  if (first.completionStatus === second.completionStatus) {
+  // ======================
+  // 6. LOGIC (Optimistic)
+  // ======================
 
-  if (first.completionStatus === "completed") {
-    lesson.finalCompletionStatus = "completed";
-    lesson.reviewStatus = "auto_resolved";
-    lesson.disputeFlag = false;
+  //  الحالة 1: أول submission
+  if (submissions.length === 1) {
+    const first = submissions[0];
 
-  } else {
-    // الحالة incomplete
-    if (first.reasonForIncomplete === second.reasonForIncomplete) {
-
-      lesson.finalCompletionStatus = "incomplete";
-      lesson.reviewStatus = "auto_resolved";
+    if (first.completionStatus === "completed") {
+      // نفترض إن الحصة تمت
+      lesson.finalCompletionStatus = "completed";
+      lesson.reviewStatus = "waiting_second_party";
       lesson.disputeFlag = false;
 
     } else {
+      // فيه مشكلة محتملة
+      lesson.finalCompletionStatus = "pending";
+      lesson.reviewStatus = "waiting_second_party";
+      lesson.disputeFlag = true;
+    }
+
+    await lesson.save();
+
+    return res.status(201).json({
+      status: "success",
+      data: submission,
+    });
+  }
+
+  //  الحالة 2: الاتنين submit
+  if (submissions.length === 2) {
+    const studentSubmission = submissions.find(s => s.role === "student");
+    const teacherSubmission = submissions.find(s => s.role === "teacher");
+
+    // الاتنين completed
+    if (
+      studentSubmission.completionStatus === "completed" &&
+      teacherSubmission.completionStatus === "completed"
+    ) {
+      lesson.finalCompletionStatus = "completed";
+      lesson.reviewStatus = "auto_resolved";
+      lesson.disputeFlag = false;
+    }
+
+    // الاتنين incomplete
+    else if (
+      studentSubmission.completionStatus === "incomplete" &&
+      teacherSubmission.completionStatus === "incomplete"
+    ) {
+      if (
+        studentSubmission.reasonForIncomplete ===
+        teacherSubmission.reasonForIncomplete
+      ) {
+        // 👇 كانوا متفقين إن فيه مشكلة
+        lesson.finalCompletionStatus = "incomplete";
+        lesson.reviewStatus = "under_admin_review"; 
+        lesson.disputeFlag = false; 
+      } else {
+        lesson.reviewStatus = "disputed";
+        lesson.disputeFlag = true;
+      }
+    }
+
+    // واحد completed والتاني incomplete
+    else {
       lesson.reviewStatus = "disputed";
       lesson.disputeFlag = true;
     }
-  }
-
-} else {
-  lesson.reviewStatus = "disputed";
-  lesson.disputeFlag = true;
-}
-
-  if (submissions.length === 2) {
-    const [first, second] = submissions;
-
-    if (first.completionStatus === second.completionStatus) {
-
-    if (first.completionStatus === "completed") {
-        lesson.finalCompletionStatus = "completed";
-        lesson.reviewStatus = "auto_resolved";
-        lesson.disputeFlag = false;
-
-    } else {
-        // الحالة incomplete
-        if (first.reasonForIncomplete === second.reasonForIncomplete) {
-
-        lesson.finalCompletionStatus = "incomplete";
-        lesson.reviewStatus = "auto_resolved";
-        lesson.disputeFlag = false;
-
-        } else {
-        lesson.reviewStatus = "disputed";
-        lesson.disputeFlag = true;
-        }
-    }
-
-    } else {
-        lesson.reviewStatus = "disputed";
-        lesson.disputeFlag = true;
-    }
-
 
     await lesson.save();
   }
 
+  // ======================
+  // 7. Response
+  // ======================
   res.status(201).json({
     status: "success",
     data: submission,
