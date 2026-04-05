@@ -80,7 +80,7 @@ router.get("/", getLessons);
 
 // ================= STUDENT - CANCEL LESSON REQUEST =================
 router.delete(
-    "/:lessonId/cancel", allowedTo("student"),
+    "/:lessonId/cancel", allowedTo("student" , "teacher" ),
     lessonIdValidator,
     cancelLessonRequest
 );
