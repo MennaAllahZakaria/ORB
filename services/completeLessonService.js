@@ -232,9 +232,8 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
   ===================================== */
 
   const filter = {
-    requestedDate: { $lt: new Date() },
-    status: "approved",
-    completion: "completed"
+    finalCompletionStatus: "completed",
+    meetingEndTime: { $ne: null }
   };
 
   if (user.role === "student") {
@@ -244,7 +243,7 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
     filter.acceptedTeacher = user._id;
   } 
   else {
-    return next(new ApiError("You are not authorized to view lessons", 403));
+    return next(new ApiError("You are not authorized", 403));
   }
 
   /* =====================================
@@ -256,9 +255,10 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
   }
 
   if (from || to) {
-    filter.requestedDate = {};
-    if (from) filter.requestedDate.$gte = new Date(from);
-    if (to) filter.requestedDate.$lte = new Date(to);
+    filter.meetingEndTime = {
+      ...(from && { $gte: new Date(from) }),
+      ...(to && { $lte: new Date(to) })
+    };
   }
 
   if (minPrice || maxPrice) {
@@ -268,7 +268,7 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
   }
 
   /* =====================================
-     TOTAL COUNT
+     TOTAL
   ===================================== */
 
   const total = await Lesson.countDocuments(filter);
@@ -280,8 +280,8 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
   const lessons = await Lesson.find(filter)
     .populate("student", "firstName lastName email studentProfile")
     .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating")
-    .select("title subject price durationInMinutes requestedDate")
-    .sort(sort || "-requestedDate")
+    .select("title subject price durationInMinutes requestedDate meetingEndTime")
+    .sort(sort || "-meetingEndTime")
     .skip(skip)
     .limit(limit);
 
