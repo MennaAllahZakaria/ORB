@@ -166,7 +166,7 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
               if (freshLesson.paymentStatus === "paid") {
                 console.log(`[Zego] Auto payout for lesson ${freshLesson._id}`);
 
-                await _releasePaymentForLesson(freshLesson);
+                // await _releasePaymentForLesson(freshLesson);
 
                 freshLesson.paymentStatus = "released";
                 await freshLesson.save();
