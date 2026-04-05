@@ -5,7 +5,8 @@ const {
     getDisputedLessons,
     adminResolveLesson,
     getPastCompletedLessons,
-    getProblematicPastLessons
+    getProblematicPastLessons, 
+    getExpiredLessons
 } = require("../services/completeLessonService");
 
 const { protect, allowedTo } = require("../middleware/authMiddleware");
@@ -29,5 +30,7 @@ router.put("/:lessonId/adminResolve", allowedTo("admin"),lessonIdValidator,admin
 router.get("/pastCompletedLessons", allowedTo("student", "teacher"),getPastCompletedLessons);
 
 router.get("/problematicPastLessons", allowedTo("student", "teacher"),getProblematicPastLessons);
+
+router.get("/expiredLessons", allowedTo("student", "teacher"),getExpiredLessons);
 
 module.exports = router;

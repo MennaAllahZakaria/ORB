@@ -427,3 +427,164 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
 
 });
 
+exports.getExpiredLessons = asyncHandler(async (req, res, next) => {
+
+  const user = req.user;
+
+  const page = Math.max(1, +req.query.page || 1);
+  const limit = Math.min(50, +req.query.limit || 10);
+  const skip = (page - 1) * limit;
+
+  const { subject, from, to, sort } = req.query;
+
+  const now = new Date();
+
+  /* =====================================
+     BASE FILTER
+  ===================================== */
+
+  let match = {
+    meetingStartTime: null // ❗ أهم شرط
+  };
+
+  if (user.role === "student") {
+    match.student = user._id;
+  } 
+  else if (user.role === "teacher") {
+    match.acceptedTeacher = user._id;
+  } 
+  else {
+    return next(new ApiError("Not authorized", 403));
+  }
+
+  if (subject) match.subject = subject;
+
+  /* =====================================
+     PIPELINE
+  ===================================== */
+
+  const pipeline = [
+
+    { $match: match },
+
+    /* ===============================
+       CALCULATE END TIME
+    =============================== */
+
+    {
+      $addFields: {
+        lessonEndTime: {
+          $add: [
+            "$requestedDate",
+            { $multiply: ["$durationInMinutes", 60000] }
+          ]
+        }
+      }
+    },
+
+    {
+      $addFields: {
+        expireAt: {
+          $add: ["$lessonEndTime", 15 * 60 * 1000] // ⏱️ 15 min buffer
+        }
+      }
+    },
+
+    /* ===============================
+       EXPIRED FILTER
+    =============================== */
+
+    {
+      $match: {
+        $expr: {
+          $lt: ["$expireAt", now]
+        }
+      }
+    },
+
+    /* ===============================
+       OPTIONAL DATE FILTER
+    =============================== */
+
+    ...(from || to
+      ? [{
+          $match: {
+            requestedDate: {
+              ...(from && { $gte: new Date(from) }),
+              ...(to && { $lte: new Date(to) })
+            }
+          }
+        }]
+      : []),
+
+    /* ===============================
+       POPULATE
+    =============================== */
+
+    {
+      $lookup: {
+        from: "users",
+        localField: "student",
+        foreignField: "_id",
+        as: "student"
+      }
+    },
+    { $unwind: "$student" },
+
+    {
+      $lookup: {
+        from: "users",
+        localField: "acceptedTeacher",
+        foreignField: "_id",
+        as: "acceptedTeacher"
+      }
+    },
+    {
+      $unwind: {
+        path: "$acceptedTeacher",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    /* ===============================
+       SELECT
+    =============================== */
+
+    {
+      $project: {
+        title: 1,
+        subject: 1,
+        price: 1,
+        requestedDate: 1,
+        lessonEndTime: 1,
+        expireAt: 1,
+
+        "student.firstName": 1,
+        "student.lastName": 1,
+
+        "acceptedTeacher.firstName": 1,
+        "acceptedTeacher.lastName": 1
+      }
+    },
+
+    { $sort: { requestedDate: sort === "desc" ? -1 : 1 } },
+
+    { $skip: skip },
+    { $limit: limit }
+
+  ];
+
+  const lessons = await Lesson.aggregate(pipeline);
+
+  const total = lessons.length; 
+
+  res.status(200).json({
+    status: "success",
+    page,
+    limit,
+    total,
+    results: lessons.length,
+    data: lessons
+  });
+
+});
