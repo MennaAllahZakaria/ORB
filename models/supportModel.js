@@ -10,7 +10,6 @@ const supportSchema = new mongoose.Schema(
     problemType: {  
         type: String,   
         required: [true, "Problem type is required"],
-        enum: ["technical", "billing", "general" , "other"],
     }   
     ,
     message: {  
