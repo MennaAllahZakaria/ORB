@@ -57,8 +57,8 @@ exports.updateSupportRequest = asyncHandler(async (req, res, next) => {
   }
     supportRequest.problemType = req.body.problemType || supportRequest.problemType;
     supportRequest.message = req.body.message || supportRequest.message;
-    if (req.body.image !== undefined) {
-    supportRequest.image = req.body.req.imageUrl || supportRequest.image;
+    if (req.imageUrl) {
+    supportRequest.image = req.imageUrl || supportRequest.image;
     }
     await supportRequest.save();
     res.status(200).json({
@@ -83,12 +83,14 @@ exports.getMySupportRequests = asyncHandler(async (req, res, next) => {
 // 🎯 Close a support request
 // ===============================
 exports.closeSupportRequest = asyncHandler(async (req, res, next) => {
-  const supportRequest = await Support.findById(req.params.id);
+  const supportRequest = await Support.findByIdAndUpdate(
+    req.params.id,
+    { status: "closed" },
+    { new: true }
+  );
     if (!supportRequest) {
     return next(new ApiError("Support request not found", 404));
   }
-  supportRequest.status = "closed";
-  await supportRequest.save();
     res.status(200).json({
     status: "success",
     data: supportRequest,
@@ -99,12 +101,14 @@ exports.closeSupportRequest = asyncHandler(async (req, res, next) => {
 // 🎯 Reopen a support request
 // ===============================
 exports.reopenSupportRequest = asyncHandler(async (req, res, next) => {
-    const supportRequest = await Support.findById(req.params.id);
+    const supportRequest = await Support.findByIdAndUpdate(
+    req.params.id,
+    { status: "open" },
+    { new: true }
+  );
     if (!supportRequest) {
     return next(new ApiError("Support request not found", 404));
   }
-    supportRequest.status = "open";
-  await supportRequest.save();
     res.status(200).json({
     status: "success",
     data: supportRequest,
