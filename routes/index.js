@@ -9,6 +9,7 @@ const zegoRoutes = require("./zegoRoute");
 const revieweRoutes = require("./reviewsRoute");
 const pointsRoutes = require("./pointsRoute");
 const supportRoutes = require("./supportRoute");
+const notificationRoutes = require("./notificationRoute");
 
 const mountRoutes = (app) => {
     app.use((req, res, next) => {
@@ -47,6 +48,7 @@ app.use("/zego", zegoRoutes);
 app.use("/reviews", revieweRoutes);
 app.use("/points", pointsRoutes);
 app.use("/support", supportRoutes);
+app.use("/notifications", notificationRoutes);
 
 //=============================
 // 404 Handler
