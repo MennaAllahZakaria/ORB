@@ -13,6 +13,7 @@ const {
     getUpcomingLessons,
     cancelLessonRequest,
     updateLessonRequest,
+    getLessonDetailsById
     
     
 } = require("../services/lessonService");
@@ -93,5 +94,8 @@ router.patch(
     
     updateLessonRequest
 );
+
+// ================= GET LESSON DETAILS BY ID =================
+router.get("/:lessonId", lessonIdValidator, getLessonDetailsById);
 
 module.exports = router;

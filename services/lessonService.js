@@ -707,6 +707,26 @@ exports.getLessonDetailsForTeacher = asyncHandler(async (req, res, next) => {
 });
 
 // =======================================================
+//  TEACHER - GET LESSON BY ID IF LESSON NOT APPROVED YET (TO SEE STUDENT DETAILS BEFORE CHOOSING TEACHER)
+// =======================================================
+exports.getLessonDetailsById = asyncHandler(async (req, res, next) => {
+  const { lessonId } = req.params;
+  const lesson = await Lesson.findOne({
+      _id: lessonId,
+      status: "pending",
+      "acceptedTeacher": null,
+    })
+    .populate("student", "firstName lastName email studentProfile imageProfile")
+    .select("student  title subject price durationInMinutes requestedDate finalCompletionStatus");
+
+  if (!lesson) return next(new ApiError("Lesson not found", 404));
+  res.status(200).json({  
+    status: "success",
+    data: lesson,
+  });
+});
+
+// =======================================================
 // GET UPCOMING LESSONS FOR TEACHER/STUDENT
 // =======================================================
 exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
