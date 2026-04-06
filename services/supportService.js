@@ -18,7 +18,7 @@ exports.createSupportRequest = asyncHandler(async (req, res, next) => {
     if (!message) {
     return next(new ApiError("message is required", 400));
   }
-    req.body.image = req.body.req.imageUrl || "";
+    const image = req.imageUrl || "";
 
     const supportRequest = await Support.create({
     user: req.user._id,
