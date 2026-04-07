@@ -406,43 +406,21 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
      FIND LESSON WITH ATOMIC CONDITIONS
   ======================================= */
 
-  const lesson = await Lesson.findOneAndUpdate(
-  {
-    _id: lessonId,
-    student: req.user._id,
-    status: "pending",
-    "interestedTeachers.teacher": teacherId
-  },
-  [
-    {
-      $set: {
-        acceptedTeacher: teacherId,
-        status: "approved",
-        price: {
-          $let: {
-            vars: {
-              teacherObj: {
-                $arrayElemAt: [
-                  {
-                    $filter: {
-                      input: "$interestedTeachers",
-                      as: "t",
-                      cond: { $eq: ["$$t.teacher", teacherId] }
-                    }
-                  },
-                  0
-                ]
-              }
-            },
-            in: "$$teacherObj.proposedPrice"
-          }
-        }
-      }
-    }
-  ],
-  { new: true }
-);
+    const lesson = await Lesson.findOne({
+      _id: lessonId,
+      student: req.user._id,
+      status: "pending"
+    });
 
+    const teacherOffer = lesson.interestedTeachers.find(
+      t => t.teacher.toString() === teacherId.toString()
+    );
+
+    lesson.acceptedTeacher = teacherId;
+    lesson.status = "approved";
+    lesson.price = teacherOffer.proposedPrice;
+
+    await lesson.save();
 
 
   if (!lesson)
