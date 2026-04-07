@@ -413,12 +413,33 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
     status: "pending",
     "interestedTeachers.teacher": teacherId
   },
-  {
-    $set: {
-      acceptedTeacher: teacherId,
-      status: "approved"
+  [
+    {
+      $set: {
+        acceptedTeacher: teacherId,
+        status: "approved",
+        price: {
+          $let: {
+            vars: {
+              teacherObj: {
+                $arrayElemAt: [
+                  {
+                    $filter: {
+                      input: "$interestedTeachers",
+                      as: "t",
+                      cond: { $eq: ["$$t.teacher", teacherId] }
+                    }
+                  },
+                  0
+                ]
+              }
+            },
+            in: "$$teacherObj.proposedPrice"
+          }
+        }
+      }
     }
-  },
+  ],
   { new: true }
 );
 
