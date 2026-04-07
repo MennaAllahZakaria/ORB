@@ -8,7 +8,46 @@ const admin = require("../fireBase/admin");
 const { addPoints } = require("./pointsService");
 const { _releasePaymentForLesson } = require("./paymentService");
 const { generateZegoToken } = require("../utils/zego");
+const crypto = require("crypto");
+const axios = require("axios");
 
+const APP_ID = process.env.ZEGO_APP_ID;
+const SERVER_SECRET = process.env.ZEGO_SERVER_SECRET;
+
+async function getZegoUsers(roomId) {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const nonce = Math.random().toString(36).substring(2, 15);
+
+  //  signature generation
+  const stringToSign = `Action=DescribeUserList&AppId=${APP_ID}&RoomId=${roomId}&Timestamp=${timestamp}&Nonce=${nonce}`;
+
+  const signature = crypto
+    .createHmac("sha256", SERVER_SECRET)
+    .update(stringToSign)
+    .digest("hex");
+
+  try {
+    const response = await axios.get("https://rtc-api.zego.im/", {
+      params: {
+        Action: "DescribeUserList",
+        AppId: APP_ID,
+        RoomId: roomId,
+        Timestamp: timestamp,
+        Nonce: nonce,
+        Signature: signature,
+      },
+    });
+
+    const users = response.data?.UserList || [];
+
+    // رجعي array of userIds بس
+    return users.map((u) => u.UserId);
+
+  } catch (err) {
+    console.error("[Zego API Error]", err.response?.data || err.message);
+    return [];
+  }
+}
 
 const isSameId = (a, b) => a && b && a.toString() === b.toString();
 
@@ -143,85 +182,24 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
     ============================ */
     case "room_logout": {
 
+      if (!user_id) {
+        console.warn("[Zego] logout user_id → fallback API");
+
+        const usersInRoom = await getZegoUsers(room_id);
+
+        lesson.activeParticipants = usersInRoom;
+
+        await lesson.save();
+
+        break;
+      }
+
+      // الكود العادي لو user_id موجود
       lesson.activeParticipants = lesson.activeParticipants.filter(
         (id) => id !== zegoUserId
       );
 
       await lesson.save();
-
-      // لو الغرفة فاضية → نستنى شوية (anti race condition)
-      if (lesson.activeParticipants.length === 0) {
-
-        setTimeout(async () => {
-          const freshLesson = await Lesson.findById(lesson._id);
-
-          if (!freshLesson) return;
-
-          // لو لسه فاضية
-          if (
-            freshLesson.activeParticipants.length === 0 &&
-            freshLesson.meetingStatus !== "finished"
-          ) {
-
-            freshLesson.meetingEndTime = new Date();
-            freshLesson.meetingStatus = "finished";
-
-            await freshLesson.save();
-
-            /* ============================
-               🎁 Points
-            ============================ */
-            if (freshLesson.student?._id) {
-              try {
-                await addPoints(freshLesson.student._id, 20, "Lesson completed");
-              } catch (err) {
-                console.error("[Points][Zego]", err.message);
-              }
-            }
-
-            /* ============================
-               💸 AUTO PAYOUT
-            ============================ */
-            try {
-              if (freshLesson.paymentStatus === "paid") {
-                console.log(`[Zego] Auto payout for lesson ${freshLesson._id}`);
-
-                // await _releasePaymentForLesson(freshLesson);
-
-                freshLesson.paymentStatus = "released";
-                await freshLesson.save();
-              }
-            } catch (err) {
-              console.error(
-                "[Payout][Zego]",
-                err.response?.data || err.message
-              );
-            }
-
-            /* ============================
-               Notification
-            ============================ */
-            if (!freshLesson.endNotificationSent) {
-              await sendLessonNotification(
-                [freshLesson.acceptedTeacher, freshLesson.student],
-                {
-                  titleEn: "✅ The lesson has ended",
-                  titleAr: "✅ انتهت الحصة",
-                  bodyEn: "The lesson has finished successfully.",
-                  bodyAr: "انتهت الحصة بنجاح.",
-                  type: "lesson_ended",
-                  lessonId: freshLesson._id,
-                }
-              );
-
-              freshLesson.endNotificationSent = true;
-              await freshLesson.save();
-            }
-          }
-
-        }, 30000); //  30 ثانية buffer
-      }
-
       break;
     }
 
