@@ -81,10 +81,30 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
 
   switch (event) {
 
+    case "room_create":{
+      console.log(`[Zego] Room created: ${room_id} for lesson ${lesson._id}`);
+
+      // set start time مرة واحدة بس
+      if (!lesson.meetingStartTime) {
+        lesson.meetingStartTime = eventDate;
+        lesson.meetingStatus = "ongoing";
+      }
+      await lesson.save();
+      break;
+    }
+
+    case "room_close":{
+      console.log(`[Zego] Room closed: ${room_id} for lesson ${lesson._id}`);
+      lesson.meetingEndTime = eventDate;
+      lesson.meetingStatus = "finished";
+      await lesson.save();
+      break;
+    }
+
     /* ============================
-       1️⃣ USER JOINED
+       USER JOINED
     ============================ */
-    case "RoomUserJoin": {
+    case "room_login": {
 
       // add user (avoid duplicates)
       if (!lesson.activeParticipants.includes(zegoUserId)) {
@@ -119,9 +139,9 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
     }
 
     /* ============================
-       2️⃣ USER LEFT
+       USER LEFT
     ============================ */
-    case "RoomUserLeave": {
+    case "room_logout": {
 
       lesson.activeParticipants = lesson.activeParticipants.filter(
         (id) => id !== zegoUserId
@@ -179,7 +199,7 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
             }
 
             /* ============================
-               🔔 Notification
+               Notification
             ============================ */
             if (!freshLesson.endNotificationSent) {
               await sendLessonNotification(
@@ -199,7 +219,7 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
             }
           }
 
-        }, 30000); // ⏱️ 30 ثانية buffer
+        }, 30000); //  30 ثانية buffer
       }
 
       break;
