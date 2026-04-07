@@ -767,7 +767,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
       {
         status: "approved",
         acceptedTeacher: user._id,
-        paymentStatus: "paid" 
+        //paymentStatus: "paid" 
       }
     ];
 
