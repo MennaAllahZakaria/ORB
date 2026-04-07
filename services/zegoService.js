@@ -182,24 +182,87 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
     ============================ */
     case "room_logout": {
 
-      if (!user_id) {
-        console.warn("[Zego] logout user_id → fallback API");
-
-        const usersInRoom = await getZegoUsers(room_id);
-
-        lesson.activeParticipants = usersInRoom;
+      // =========================
+      //لو user_id موجود
+      // =========================
+      if (zegoUserId) {
+        lesson.activeParticipants = lesson.activeParticipants.filter(
+          (id) => id !== zegoUserId
+        );
 
         await lesson.save();
-
-        break;
       }
 
-      // الكود العادي لو user_id موجود
-      lesson.activeParticipants = lesson.activeParticipants.filter(
-        (id) => id !== zegoUserId
-      );
+      // =========================
+      //  نتحقق من الغرفة بعد delay
+      // =========================
+      setTimeout(async () => {
+        try {
+          const freshLesson = await Lesson.findById(lesson._id);
+          if (!freshLesson) return;
 
-      await lesson.save();
+          //  نسأل Zego مباشرة
+          const usersInRoom = await getZegoUsers(room_id);
+
+          console.log("[Zego] real users:", usersInRoom);
+
+          // sync الحالة
+          freshLesson.activeParticipants = usersInRoom;
+
+          // =========================
+          //  لو الغرفة فاضية
+          // =========================
+          if (
+            usersInRoom.length === 0 &&
+            freshLesson.meetingStatus !== "finished"
+          ) {
+            freshLesson.meetingEndTime = new Date();
+            freshLesson.meetingStatus = "finished";
+
+            await freshLesson.save();
+
+            console.log("[Zego] Lesson انتهت فعليًا");
+
+            // 🎁 Points
+            if (freshLesson.student?._id) {
+              try {
+                await addPoints(
+                  freshLesson.student._id,
+                  20,
+                  "Lesson completed"
+                );
+              } catch (err) {
+                console.error("[Points]", err.message);
+              }
+            }
+
+            // 🔔 Notification
+            if (!freshLesson.endNotificationSent) {
+              await sendLessonNotification(
+                [freshLesson.acceptedTeacher, freshLesson.student],
+                {
+                  titleEn: "✅ The lesson has ended",
+                  titleAr: "✅ انتهت الحصة",
+                  bodyEn: "The lesson has finished successfully.",
+                  bodyAr: "انتهت الحصة بنجاح.",
+                  type: "lesson_ended",
+                  lessonId: freshLesson._id,
+                }
+              );
+
+              freshLesson.endNotificationSent = true;
+              await freshLesson.save();
+            }
+          } else {
+            // 👇 لسه في ناس، update بس
+            await freshLesson.save();
+          }
+
+        } catch (err) {
+          console.error("[Zego][FINAL CHECK ERROR]", err.message);
+        }
+      }, 10000); // ⏱️ 10 ثواني كفاية بدل 30
+
       break;
     }
 
