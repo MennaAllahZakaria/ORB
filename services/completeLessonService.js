@@ -4,6 +4,7 @@ const ApiError = require("../utils/apiError");
 const User = require("../models/userModel");
 const Lesson = require("../models/lessonModel");
 const CompleteLesson = require("../models/completeLossonModel");
+const Review = require("../models/reviewModel");
 const Notification = require("../models/notificationModel");
 
 
@@ -278,12 +279,34 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
   ===================================== */
 
   const lessons = await Lesson.find(filter)
-    .populate("student", "firstName lastName email studentProfile")
-    .populate("acceptedTeacher", "firstName lastName email teacherProfile.avgRating")
-    .select("title subject price durationInMinutes requestedDate meetingEndTime")
+    .populate("student", "firstName lastName email imageProfile studentProfile")
+    .populate("acceptedTeacher", "firstName lastName email imageProfile teacherProfile.avgRating")
+    .select("title subject price durationInMinutes requestedDate meetingEndTime finalCompletionStatus reviewStatus")
     .sort(sort || "-meetingEndTime")
     .skip(skip)
     .limit(limit);
+
+  // ======================
+  // Get reviews for these lessons and compile them in a map for easy access
+  // ======================
+  const lessonIds = lessons.map(l => l._id);
+  const reviews = await Review.find({ lesson: { $in: lessonIds } })
+    .select("lesson rating comment createdAt")
+    .lean();
+  const reviewsMap = {};
+  reviews.forEach(r => {
+    reviewsMap[r.lesson.toString()] = r;
+  });
+
+  // Attach review info to lessons
+  const lessonsWithReviews = lessons.map(lesson => {
+    const lessonObj = lesson.toObject();
+    lessonObj.review = reviewsMap[lesson._id.toString()] || null;
+    return lessonObj;
+  });
+
+
+
 
   /* =====================================
      RESPONSE
@@ -298,7 +321,7 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
     hasNextPage: page * limit < total,
     hasPrevPage: page > 1,
     results: lessons.length,
-    data: lessons,
+    data: lessonsWithReviews,
   });
 
 });
@@ -412,8 +435,24 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
 
   const result = await CompleteLesson.aggregate(pipeline);
 
-  const total = result[0].metadata[0]?.total || 0;
-  const data = result[0].data;
+  // get reviews for these lessons and compile them in a map for easy access
+  const lessons = result[0].data.map(d => d.lesson);
+  const lessonIds = lessons.map(l => l._id);
+  const reviews = await Review.find({ lesson: { $in: lessonIds } })
+    .select("lesson rating comment createdAt")
+    .lean();
+  const reviewsMap = {};
+  reviews.forEach(r => {
+    reviewsMap[r.lesson.toString()] = r;
+  });
+
+  // attach review info to lessons
+  const lessonsWithReviews = result[0].data.map(d => {
+    const lessonObj = d.lesson;
+    lessonObj.review = reviewsMap[lessonObj._id.toString()] || null;
+    return lessonObj;
+  });
+
 
   res.status(200).json({
     status: "success",
@@ -421,8 +460,9 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
     limit,
     total,
     totalPages: Math.ceil(total / limit),
-    results: data.length,
-    data
+    results: lessonsWithReviews.length,
+    data: lessonsWithReviews,
+    
   });
 
 });
