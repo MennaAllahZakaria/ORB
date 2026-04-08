@@ -146,6 +146,7 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
       console.log(`[Zego] Room closed: ${room_id} for lesson ${lesson._id}`);
       lesson.meetingEndTime = eventDate;
       lesson.meetingStatus = "finished";
+      lesson.finalCompletionStatus = "completed";
       await lesson.save();
       break;
     }
