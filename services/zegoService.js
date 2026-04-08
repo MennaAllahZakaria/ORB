@@ -18,13 +18,17 @@ async function getZegoUsers(roomId) {
   const timestamp = Math.floor(Date.now() / 1000);
   const nonce = Math.random().toString(36).substring(2, 15);
 
-  //  signature generation
-  const stringToSign = `Action=DescribeUserList&AppId=${APP_ID}&RoomId=${roomId}&Timestamp=${timestamp}&Nonce=${nonce}`;
+  const stringToSign =
+    `Action=DescribeUserList` +
+    `&AppId=${APP_ID}` +
+    `&Nonce=${nonce}` +
+    `&RoomId=${roomId}` +
+    `&Timestamp=${timestamp}`;
 
   const signature = crypto
     .createHmac("sha256", SERVER_SECRET)
     .update(stringToSign)
-    .digest("hex");
+    .digest("base64"); // base64 or hex
 
   try {
     const response = await axios.get("https://rtc-api.zego.im/", {
@@ -35,12 +39,18 @@ async function getZegoUsers(roomId) {
         Timestamp: timestamp,
         Nonce: nonce,
         Signature: signature,
+
+        //  optional parameters
+        Mode: 0,
+        Limit: 200,
+        Marker: "",
       },
     });
 
-    const users = response.data?.UserList || [];
+    console.log("[Zego raw response]", response.data);
 
-    // رجعي array of userIds بس
+    const users = response.data?.Data?.UserList || [];
+
     return users.map((u) => u.UserId);
 
   } catch (err) {
@@ -218,7 +228,7 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
           ) {
             freshLesson.meetingEndTime = new Date();
             freshLesson.meetingStatus = "finished";
-
+            freshLesson.finalCompletionStatus = "completed"; 
             await freshLesson.save();
 
             console.log("[Zego] Lesson انتهت فعليًا");

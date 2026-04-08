@@ -155,7 +155,7 @@ const lessonSchema = new mongoose.Schema(
     finalCompletionStatus: {
       type: String,
       enum: ["pending", "completed", "incomplete"],
-      default: "completed",
+      default: "pending",
     },
 
     reviewStatus: {
