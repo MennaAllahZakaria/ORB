@@ -117,6 +117,8 @@ exports.submitCompletion = asyncHandler(async (req, res, next) => {
       lesson.finalCompletionStatus = "completed";
       lesson.reviewStatus = "auto_resolved";
       lesson.disputeFlag = false;
+      studentSubmission.reviewStatus = "auto_resolved";
+      teacherSubmission.reviewStatus = "auto_resolved";
     }
 
     // الاتنين incomplete
@@ -128,13 +130,18 @@ exports.submitCompletion = asyncHandler(async (req, res, next) => {
         studentSubmission.reasonForIncomplete ===
         teacherSubmission.reasonForIncomplete
       ) {
-        // 👇 كانوا متفقين إن فيه مشكلة
+        //  كانوا متفقين إن فيه مشكلة
         lesson.finalCompletionStatus = "incomplete";
         lesson.reviewStatus = "under_admin_review"; 
         lesson.disputeFlag = false; 
+        studentSubmission.reviewStatus = "under_admin_review";
+        teacherSubmission.reviewStatus = "under_admin_review";
+
       } else {
         lesson.reviewStatus = "disputed";
         lesson.disputeFlag = true;
+        studentSubmission.reviewStatus = "disputed";
+        teacherSubmission.reviewStatus = "disputed";
       }
     }
 
@@ -142,9 +149,13 @@ exports.submitCompletion = asyncHandler(async (req, res, next) => {
     else {
       lesson.reviewStatus = "disputed";
       lesson.disputeFlag = true;
+      studentSubmission.reviewStatus = "disputed";
+      teacherSubmission.reviewStatus = "disputed";
     }
 
     await lesson.save();
+    await studentSubmission.save();
+    await teacherSubmission.save();
   }
 
   // ======================

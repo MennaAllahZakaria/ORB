@@ -62,7 +62,7 @@ exports.createReview = asyncHandler(async (req, res, next) => {
   }
 
   // Lesson must be completed
-  if (lesson.status !== "completed") {
+  if (lesson.finalCompletionStatus !== "completed") {
     return next(
       new ApiError("You can only review the lesson after it is completed", 400)
     );

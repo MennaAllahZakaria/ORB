@@ -28,14 +28,6 @@ const completeSchema = new mongoose.Schema(
 
     reasonForIncomplete: {
       type: String,
-      enum: [
-        "no_show_student",
-        "no_show_teacher",
-        "technical_issues_by_student",
-        "technical_issues_by_teacher",
-        "canceled_by_agreement",
-        "other",
-      ],
       default: null,
     },
 
