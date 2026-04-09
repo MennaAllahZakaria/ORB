@@ -128,43 +128,28 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
     lesson.activeParticipants = [];
   }
 
+  /* ===========================
+     CONSTANTS
+  ============================ */
+  const INACTIVITY_LIMIT = 2 * 60 * 1000; // دقيقتين
+  const MIN_LESSON_DURATION = 5 * 60 * 1000; // 5 دقايق
+  const FINAL_CHECK_DELAY = 15000; // 15 ثانية
+
   switch (event) {
 
-    case "room_create":{
-      console.log(`[Zego] Room created: ${room_id} for lesson ${lesson._id}`);
-
-      // set start time مرة واحدة بس
-      if (!lesson.meetingStartTime) {
-        lesson.meetingStartTime = eventDate;
-        lesson.meetingStatus = "ongoing";
-      }
-      await lesson.save();
-      break;
-    }
-
-    case "room_close":{
-      console.log(`[Zego] Room closed: ${room_id} for lesson ${lesson._id}`);
-      lesson.meetingEndTime = eventDate;
-      lesson.meetingStatus = "finished";
-      lesson.finalCompletionStatus = "completed";
-      await lesson.save();
-      break;
-    }
-
-    /* ============================
+    /* ===========================
        USER JOINED
     ============================ */
     case "room_login": {
 
-      // add user (avoid duplicates)
-      if (!lesson.activeParticipants.includes(zegoUserId)) {
+      if (zegoUserId && !lesson.activeParticipants.includes(zegoUserId)) {
         lesson.activeParticipants.push(zegoUserId);
       }
 
-      // ensure unique
       lesson.activeParticipants = [...new Set(lesson.activeParticipants)];
 
-      // set start time مرة واحدة بس
+      lesson.lastActiveAt = new Date();
+
       if (!lesson.meetingStartTime) {
         lesson.meetingStartTime = eventDate;
         lesson.meetingStatus = "ongoing";
@@ -188,53 +173,65 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
       break;
     }
 
-    /* ============================
+    /* ===========================
        USER LEFT
     ============================ */
     case "room_logout": {
 
-      // =========================
-      //لو user_id موجود
-      // =========================
+      // لو user معروف
       if (zegoUserId) {
         lesson.activeParticipants = lesson.activeParticipants.filter(
           (id) => id !== zegoUserId
         );
 
+        lesson.lastActiveAt = new Date();
+
         await lesson.save();
       }
 
       // =========================
-      //  نتحقق من الغرفة بعد delay
+      // Final Check بعد delay
       // =========================
       setTimeout(async () => {
         try {
           const freshLesson = await Lesson.findById(lesson._id);
           if (!freshLesson) return;
 
-          //  نسأل Zego مباشرة
+          //get users from Zego API to confirm.
           const usersInRoom = await getZegoUsers(room_id);
 
-          console.log("[Zego] real users:", usersInRoom);
-
-          // sync الحالة
           freshLesson.activeParticipants = usersInRoom;
 
-          // =========================
-          //  لو الغرفة فاضية
-          // =========================
-          if (
-            usersInRoom.length === 0 &&
-            freshLesson.meetingStatus !== "finished"
-          ) {
-            freshLesson.meetingEndTime = new Date();
+          const now = new Date();
+
+          const isEmpty = usersInRoom.length === 0;
+
+          const inactiveTooLong =
+            freshLesson.lastActiveAt &&
+            (now - freshLesson.lastActiveAt) > INACTIVITY_LIMIT;
+
+          const longEnough =
+            freshLesson.meetingStartTime &&
+            (now - freshLesson.meetingStartTime) > MIN_LESSON_DURATION;
+
+          const shouldEnd =
+            isEmpty &&
+            inactiveTooLong &&
+            longEnough &&
+            freshLesson.meetingStatus !== "finished";
+
+          if (shouldEnd) {
+            console.log("[Zego] Ending lesson safely");
+
+            freshLesson.meetingEndTime = now;
             freshLesson.meetingStatus = "finished";
-            freshLesson.finalCompletionStatus = "completed"; 
+            freshLesson.finalCompletionStatus = "completed";
+
             await freshLesson.save();
 
-            console.log("[Zego] Lesson انتهت فعليًا");
-
-            // 🎁 Points
+            /* ===========================
+               🎁 Points
+            ============================ */
             if (freshLesson.student?._id) {
               try {
                 await addPoints(
@@ -247,7 +244,9 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
               }
             }
 
-            // 🔔 Notification
+            /* ===========================
+               🔔 Notification
+            ============================ */
             if (!freshLesson.endNotificationSent) {
               await sendLessonNotification(
                 [freshLesson.acceptedTeacher, freshLesson.student],
@@ -264,20 +263,21 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
               freshLesson.endNotificationSent = true;
               await freshLesson.save();
             }
+
           } else {
-            // 👇 لسه في ناس، update بس
+            // لسه في احتمال يرجعوا
             await freshLesson.save();
           }
 
         } catch (err) {
-          console.error("[Zego][FINAL CHECK ERROR]", err.message);
+          console.error("[Zego][SAFE END ERROR]", err.message);
         }
-      }, 10000); // ⏱️ 10 ثواني كفاية بدل 30
+      }, FINAL_CHECK_DELAY);
 
       break;
     }
 
-    /* ============================
+    /* ===========================
        DEFAULT
     ============================ */
     default:

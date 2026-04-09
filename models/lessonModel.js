@@ -150,6 +150,10 @@ const lessonSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    lastActiveAt: {
+      type: Date,
+      default: null,
+    },
 
     // lesson completion 
     finalCompletionStatus: {
