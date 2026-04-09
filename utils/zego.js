@@ -1,3 +1,4 @@
+const { use } = require("react");
 const { generateToken04 } = require("./zegoServerAssistant");
 
 exports.generateZegoToken = (userId, roomId , effectiveTimeInSeconds = 7200) => {
@@ -7,6 +8,7 @@ exports.generateZegoToken = (userId, roomId , effectiveTimeInSeconds = 7200) => 
 
   const payloadObject = {
     room_id: roomId,
+    user_id: userId,
     privilege: {
       1: 1, // login room
       2: 1, // publish stream
