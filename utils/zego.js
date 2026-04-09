@@ -1,4 +1,3 @@
-const { use } = require("react");
 const { generateToken04 } = require("./zegoServerAssistant");
 
 exports.generateZegoToken = (userId, roomId , effectiveTimeInSeconds = 7200) => {
