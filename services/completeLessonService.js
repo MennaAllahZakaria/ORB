@@ -237,22 +237,22 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
   const limit = Math.min(50, +req.query.limit || 10);
   const skip = (page - 1) * limit;
 
-  const { subject, from, to, minPrice, maxPrice, sort } = req.query;
+  const { subject, from, to, minPrice, maxPrice, sort, reviewed } = req.query;
 
   /* =====================================
      BASE FILTER
   ===================================== */
 
-  const filter = {
+  const match = {
     finalCompletionStatus: "completed",
     meetingEndTime: { $ne: null }
   };
 
   if (user.role === "student") {
-    filter.student = user._id;
+    match.student = user._id;
   } 
   else if (user.role === "teacher") {
-    filter.acceptedTeacher = user._id;
+    match.acceptedTeacher = user._id;
   } 
   else {
     return next(new ApiError("You are not authorized", 403));
@@ -263,61 +263,171 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
   ===================================== */
 
   if (subject) {
-    filter.subject = subject;
+    match.subject = subject;
   }
 
   if (from || to) {
-    filter.meetingEndTime = {
+    match.meetingEndTime = {
       ...(from && { $gte: new Date(from) }),
       ...(to && { $lte: new Date(to) })
     };
   }
 
   if (minPrice || maxPrice) {
-    filter.price = {};
-    if (minPrice) filter.price.$gte = Number(minPrice);
-    if (maxPrice) filter.price.$lte = Number(maxPrice);
+    match.price = {};
+    if (minPrice) match.price.$gte = Number(minPrice);
+    if (maxPrice) match.price.$lte = Number(maxPrice);
   }
 
   /* =====================================
-     TOTAL
+     AGGREGATION PIPELINE
   ===================================== */
 
-  const total = await Lesson.countDocuments(filter);
+  const pipeline = [
+
+    { $match: match },
+
+    // ======================
+    // join reviews
+    // ======================
+    {
+      $lookup: {
+        from: "reviews",
+        localField: "_id",
+        foreignField: "lesson",
+        as: "review"
+      }
+    },
+
+    // ======================
+    // add hasReview flag
+    // ======================
+    {
+      $addFields: {
+        hasReview: { $gt: [{ $size: "$review" }, 0] }
+      }
+    },
+
+    // ======================
+    // filter by reviewed
+    // ======================
+    ...(reviewed === "true" ? [{ $match: { hasReview: true } }] : []),
+    ...(reviewed === "false" ? [{ $match: { hasReview: false } }] : []),
+
+    // ======================
+    // populate student
+    // ======================
+    {
+      $lookup: {
+        from: "users",
+        localField: "student",
+        foreignField: "_id",
+        as: "student"
+      }
+    },
+    { $unwind: "$student" },
+
+    // ======================
+    // populate teacher
+    // ======================
+    {
+      $lookup: {
+        from: "users",
+        localField: "acceptedTeacher",
+        foreignField: "_id",
+        as: "acceptedTeacher"
+      }
+    },
+    { $unwind: "$acceptedTeacher" },
+
+    // ======================
+    // reshape review (take first)
+    // ======================
+    {
+      $addFields: {
+        review: { $arrayElemAt: ["$review", 0] }
+      }
+    },
+
+    // ======================
+    // select fields
+    // ======================
+    {
+      $project: {
+        title: 1,
+        subject: 1,
+        price: 1,
+        durationInMinutes: 1,
+        requestedDate: 1,
+        meetingEndTime: 1,
+        finalCompletionStatus: 1,
+        reviewStatus: 1,
+
+        "student.firstName": 1,
+        "student.lastName": 1,
+        "student.email": 1,
+        "student.imageProfile": 1,
+        "student.studentProfile": 1,
+
+        "acceptedTeacher.firstName": 1,
+        "acceptedTeacher.lastName": 1,
+        "acceptedTeacher.email": 1,
+        "acceptedTeacher.imageProfile": 1,
+        "acceptedTeacher.teacherProfile.avgRating": 1,
+
+        review: 1,
+        hasReview: 1
+      }
+    },
+
+    // ======================
+    // sorting
+    // ======================
+    {
+      $sort: sort ? { [sort]: -1 } : { meetingEndTime: -1 }
+    },
+
+    // ======================
+    // pagination
+    // ======================
+    { $skip: skip },
+    { $limit: limit }
+  ];
 
   /* =====================================
-     QUERY
+     EXECUTE
   ===================================== */
 
-  const lessons = await Lesson.find(filter)
-    .populate("student", "firstName lastName email imageProfile studentProfile")
-    .populate("acceptedTeacher", "firstName lastName email imageProfile teacherProfile.avgRating")
-    .select("title subject price durationInMinutes requestedDate meetingEndTime finalCompletionStatus reviewStatus")
-    .sort(sort || "-meetingEndTime")
-    .skip(skip)
-    .limit(limit);
+  const lessons = await Lesson.aggregate(pipeline);
 
-  // ======================
-  // Get reviews for these lessons and compile them in a map for easy access
-  // ======================
-  const lessonIds = lessons.map(l => l._id);
-  const reviews = await Review.find({ lesson: { $in: lessonIds } })
-    .select("lesson rating comment createdAt")
-    .lean();
-  const reviewsMap = {};
-  reviews.forEach(r => {
-    reviewsMap[r.lesson.toString()] = r;
-  });
+  /* =====================================
+     TOTAL COUNT (important)
+  ===================================== */
 
-  // Attach review info to lessons
-  const lessonsWithReviews = lessons.map(lesson => {
-    const lessonObj = lesson.toObject();
-    lessonObj.review = reviewsMap[lesson._id.toString()] || null;
-    return lessonObj;
-  });
+  const countPipeline = [
+    { $match: match },
 
+    {
+      $lookup: {
+        from: "reviews",
+        localField: "_id",
+        foreignField: "lesson",
+        as: "review"
+      }
+    },
+    {
+      $addFields: {
+        hasReview: { $gt: [{ $size: "$review" }, 0] }
+      }
+    },
+    ...(reviewed === "true" ? [{ $match: { hasReview: true } }] : []),
+    ...(reviewed === "false" ? [{ $match: { hasReview: false } }] : []),
 
+    { $count: "total" }
+  ];
 
+  const totalResult = await Lesson.aggregate(countPipeline);
+  const total = totalResult[0]?.total || 0;
 
   /* =====================================
      RESPONSE
@@ -332,7 +442,7 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
     hasNextPage: page * limit < total,
     hasPrevPage: page > 1,
     results: lessons.length,
-    data: lessonsWithReviews,
+    data: lessons,
   });
 
 });
@@ -345,6 +455,7 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
 exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
 
   const userId = req.user._id;
+
   const page = Math.max(1, +req.query.page || 1);
   const limit = Math.min(50, +req.query.limit || 10);
   const skip = (page - 1) * limit;
@@ -352,35 +463,35 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
   const { reviewStatus, role, from, to } = req.query;
 
   /* ===========================
-     MATCH CONDITIONS
+     MATCH
   ============================ */
 
-  const matchStage = {
-    reviewStatus: { $in: ["disputed", "under_admin_review" , "resolved_by_admin"] }
+  const match = {
+    reviewStatus: {
+      $in: ["disputed", "under_admin_review", "resolved_by_admin"]
+    }
   };
 
-  if (reviewStatus) {
-    matchStage.reviewStatus = reviewStatus;
-  }
-
-  if (role) {
-    matchStage.role = role;
-  }
+  if (reviewStatus) match.reviewStatus = reviewStatus;
+  if (role) match.role = role;
 
   if (from || to) {
-    matchStage.createdAt = {};
-    if (from) matchStage.createdAt.$gte = new Date(from);
-    if (to) matchStage.createdAt.$lte = new Date(to);
+    match.createdAt = {};
+    if (from) match.createdAt.$gte = new Date(from);
+    if (to) match.createdAt.$lte = new Date(to);
   }
 
   /* ===========================
-     AGGREGATION
+     PIPELINE
   ============================ */
 
   const pipeline = [
 
-    { $match: matchStage },
+    { $match: match },
 
+    /* ===========================
+       JOIN LESSON
+    ============================ */
     {
       $lookup: {
         from: "lessons",
@@ -389,9 +500,11 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
         as: "lesson"
       }
     },
-
     { $unwind: "$lesson" },
 
+    /* ===========================
+       FILTER USER + INCOMPLETE
+    ============================ */
     {
       $match: {
         "lesson.finalCompletionStatus": "incomplete",
@@ -403,9 +516,26 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
     },
 
     /* ===========================
+       JOIN REVIEW 
+    ============================ */
+    {
+      $lookup: {
+        from: "reviews",
+        localField: "lesson._id",
+        foreignField: "lesson",
+        as: "review"
+      }
+    },
+
+    {
+      $addFields: {
+        review: { $arrayElemAt: ["$review", 0] }
+      }
+    },
+
+    /* ===========================
        POPULATE STUDENT
     ============================ */
-
     {
       $lookup: {
         from: "users",
@@ -419,7 +549,6 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
     /* ===========================
        POPULATE TEACHER
     ============================ */
-
     {
       $lookup: {
         from: "users",
@@ -430,8 +559,14 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
     },
     { $unwind: "$lesson.acceptedTeacher" },
 
+    /* ===========================
+       SORT
+    ============================ */
     { $sort: { createdAt: -1 } },
 
+    /* ===========================
+       FACET (pagination + total)
+    ============================ */
     {
       $facet: {
         metadata: [{ $count: "total" }],
@@ -441,29 +576,16 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
         ]
       }
     }
-
   ];
 
   const result = await CompleteLesson.aggregate(pipeline);
 
-  // get reviews for these lessons and compile them in a map for easy access
-  const lessons = result[0].data.map(d => d.lesson);
-  const lessonIds = lessons.map(l => l._id);
-  const reviews = await Review.find({ lesson: { $in: lessonIds } })
-    .select("lesson rating comment createdAt")
-    .lean();
-  const reviewsMap = {};
-  reviews.forEach(r => {
-    reviewsMap[r.lesson.toString()] = r;
-  });
+  const data = result[0]?.data || [];
+  const total = result[0]?.metadata[0]?.total || 0;
 
-  // attach review info to lessons
-  const lessonsWithReviews = result[0].data.map(d => {
-    const lessonObj = d.lesson;
-    lessonObj.review = reviewsMap[lessonObj._id.toString()] || null;
-    return lessonObj;
-  });
-
+  /* ===========================
+     RESPONSE
+  ============================ */
 
   res.status(200).json({
     status: "success",
@@ -471,9 +593,8 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
     limit,
     total,
     totalPages: Math.ceil(total / limit),
-    results: lessonsWithReviews.length,
-    data: lessonsWithReviews,
-    
+    results: data.length,
+    data
   });
 
 });
