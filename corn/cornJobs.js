@@ -20,8 +20,8 @@ exports.initializeCronJobs = () => {
   // });
 
   //runs every 5 minutes
-  cron.schedule("*/5 * * * *", async () => {
-   startLessonReminderCron();
-  });
+  // cron.schedule("*/5 * * * *", async () => {
+  //  startLessonReminderCron();
+  // });
 
 };
