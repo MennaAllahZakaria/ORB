@@ -3,8 +3,8 @@ const Lesson = require("../models/lessonModel");
 const LESSON_DURATION_BUFFER = 5 * 60 * 1000; // 5 دقايق
 
 exports.runLessonCompletionJob = () => {
-    // runs every minute
-  cron.schedule("*/1 * * * *", async () => {
+    // runs every hour
+  cron.schedule("0 * * * *", async () => {
     console.log("[CRON] Checking lessons...");
 
     try {
