@@ -557,7 +557,7 @@ exports.updateProfile = asyncHandler(async (req, res, next) => {
   const allowedFields = ["firstName", "lastName", "phone", "teacherProfile.school" , "teacherProfile.pricePerHour" , "teacherProfile.bio" , "teacherProfile.experienceYears" , "teacherProfile.education_system","teacherProfile.academic_stages" , "teacherProfile.subjects" , "studentProfile.grade", "studentProfile.education_system", "studentProfile.school"];
   const updates = {};
   allowedFields.forEach((field) => {
-    if (req.body[field]) {
+    if (req.body[field] !== undefined && req.body[field] !== null) {
       updates[field] = req.body[field];
     }
   });
