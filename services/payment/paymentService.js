@@ -29,7 +29,7 @@ exports.createPayment = async (req, res) => {
       currency: "EGP",
       paymentOptions: [2], 
       redirectUrl: "https://google.com", // test 
-      customerReference: payment.customerReference,
+      customerReference: new Date().getTime().toString(),
       name: req.user.firstName + " " + req.user.lastName,
       email: req.user.email,
       mobile: req.user.phone,
@@ -48,7 +48,7 @@ exports.createPayment = async (req, res) => {
   });
 
  console.log("SUCCESS:", response.data);
- 
+
   res.status(200).json({
     message: "Payment created successfully",
     data: {
