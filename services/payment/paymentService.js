@@ -5,6 +5,7 @@ const ApiError = require("../../utils/apiError");
 
 exports.createPayment = async (req, res) => {
   const { lessonId } = req.body;
+  const { FRONT_URL } = req.body;
 
   const lesson = await Lesson.findById(lessonId);
 
@@ -32,7 +33,7 @@ exports.createPayment = async (req, res) => {
       amount: lesson.price,
       currency: "EGP",
       paymentOptions: [2, 4, 5],
-      redirectUrl: `${process.env.FRONT_URL}/payment-result`,
+      redirectUrl: `${FRONT_URL}/payment-result`,
       customerReference: payment.customerReference,
     },
     {
