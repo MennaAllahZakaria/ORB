@@ -17,6 +17,13 @@ module.exports = async () => {
 
       console.log(`🔍 Checking payment: ${payment._id}`);
 
+      if (Date.now() - payment.createdAt > 30 * 60 * 1000) {
+        payment.status = "failed";
+        await payment.save();
+        console.log(`⏰ Payment expired: ${payment._id}`);
+        continue;
+      }
+
       const res = await axios.post(
         "https://back.easykash.net/api/cash-api/inquire",
         { customerReference: payment.customerReference },
@@ -79,9 +86,16 @@ module.exports = async () => {
 
     } catch (err) {
 
-      console.error(`🔥 Error checking payment ${payment._id}`);
-      console.error(err.response?.data || err.message);
+      const errorMsg = err.response?.data?.error;
 
+      if (errorMsg?.includes("customerReference not found")) {
+
+        console.log("⚠️ Invalid payment reference, marking failed");
+
+        payment.status = "failed";
+        await payment.save();
+      }
+      console.error(`❌ Error verifying payment ${payment._id}:`, err.message);
       continue;
     }
   }
