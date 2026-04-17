@@ -22,6 +22,7 @@ exports.createPayment = async (req, res) => {
   }
 
 
+  const customerReference = new Date().getTime().toString();
   const response = await axios.post(
     "https://back.easykash.net/api/directpayv1/pay",
     {
@@ -29,7 +30,7 @@ exports.createPayment = async (req, res) => {
       currency: "EGP",
       paymentOptions: [2], 
       redirectUrl: "https://google.com", // test 
-      customerReference: new Date().getTime().toString(),
+      customerReference: customerReference,
       name: req.user.firstName + " " + req.user.lastName,
       email: req.user.email,
       mobile: req.user.phone,
@@ -44,7 +45,7 @@ exports.createPayment = async (req, res) => {
     userId: req.user._id,
     lessonId,
     amount: lesson.price,
-    customerReference: response.data.customerReference,
+    customerReference: customerReference,
   });
 
  console.log("SUCCESS:", response.data);
