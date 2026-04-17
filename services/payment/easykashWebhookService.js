@@ -1,58 +1,49 @@
-const crypto = require("crypto");
 const Payment = require("../../models/payment/paymentModel");
 const { handlePaymentSuccess } = require("./paymentHandleService");
-
-const verifySignature = (payload) => {
-  const secret = process.env.EASYKASH_SECRET;
-
-  const dataString =
-    payload.customerReference +
-    payload.Amount +
-    payload.status +
-    payload.easykashRef;
-
-  const generated = crypto
-    .createHmac("sha256", secret)
-    .update(dataString)
-    .digest("hex");
-
-  return generated === payload.signatureHash;
-};
+const { verifySignature } = require("../../utils/easykashSignature");
 
 exports.easykashWebhook = async (req, res) => {
   try {
-
     const payload = req.body;
 
+    console.log("📥 Webhook received:", payload);
+
     /* ===============================
-       1. VALIDATE SIGNATURE
+       1. SIGNATURE VALIDATION
     =============================== */
 
     const isValid = verifySignature(payload);
 
     if (!isValid) {
+      console.error("❌ Invalid signature");
       return res.status(400).json({ message: "Invalid signature" });
     }
 
     /* ===============================
-       2. IDEMPOTENCY CHECK
-    =============================== */
-
-    const existingPayment = await Payment.findOne({
-      customerReference: payload.customerReference,
-      status: "paid",
-    });
-
-    if (existingPayment) {
-      return res.status(200).json({ message: "Already processed" });
-    }
-
-    /* ===============================
-       3. STATUS CHECK
+       2. STATUS CHECK
     =============================== */
 
     if (payload.status !== "PAID") {
-      return res.status(200).json({ message: "Ignored non-paid status" });
+      console.log("⏳ Ignored non-paid webhook");
+      return res.status(200).json({ message: "Ignored" });
+    }
+
+    /* ===============================
+       3. IDEMPOTENCY CHECK
+    =============================== */
+
+    const payment = await Payment.findOne({
+      customerReference: payload.customerReference,
+    });
+
+    if (!payment) {
+      console.error("❌ Payment not found in DB");
+      return res.status(404).json({ message: "Payment not found" });
+    }
+
+    if (payment.status === "paid") {
+      console.log("⚠️ Already processed");
+      return res.status(200).json({ message: "Already processed" });
     }
 
     /* ===============================
@@ -65,11 +56,12 @@ exports.easykashWebhook = async (req, res) => {
       amount: Number(payload.Amount),
     });
 
-    
+    console.log("✅ Payment processed from webhook");
+
     return res.status(200).json({ message: "Processed" });
 
   } catch (err) {
-    console.error(err);
+    console.error("❌ Webhook error:", err);
     return res.status(500).json({ message: "Webhook error" });
   }
 };
