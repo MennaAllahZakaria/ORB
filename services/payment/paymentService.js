@@ -21,12 +21,6 @@ exports.createPayment = async (req, res) => {
     throw new Error("Already paid");
   }
 
-  const payment = await Payment.create({
-    userId: req.user._id,
-    lessonId,
-    amount: lesson.price,
-    customerReference: new Date().getTime().toString(),
-  });
 
   const response = await axios.post(
     "https://back.easykash.net/api/directpayv1/pay",
@@ -46,7 +40,15 @@ exports.createPayment = async (req, res) => {
       },
     }
   );
+  const payment = await Payment.create({
+    userId: req.user._id,
+    lessonId,
+    amount: lesson.price,
+    customerReference: response.data.customerReference,
+  });
+
  console.log("SUCCESS:", response.data);
+ 
   res.status(200).json({
     message: "Payment created successfully",
     data: {
