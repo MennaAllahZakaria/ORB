@@ -6,7 +6,6 @@ const { v4: uuidv4 } = require("uuid");
 
 const admin = require("../fireBase/admin");
 const { addPoints } = require("./pointsService");
-const { _releasePaymentForLesson } = require("./paymentService");
 const { generateZegoToken } = require("../utils/zego");
 const crypto = require("crypto");
 const axios = require("axios");

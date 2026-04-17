@@ -1,30 +1,5 @@
 const mongoose = require("mongoose");
 
-/* =========================
-   PAYMENT SUBSCHEMA
-========================= */
-const paymentSchema = new mongoose.Schema(
-  {
-    amount: Number,
-    paymobOrderId: String,
-    transactionId: String,
-
-    // 💸 Disbursement
-    disburseTransactionId: String,
-    disbursementStatus: String,
-    disbursementCode: String,
-    disbursementDescription: String,
-    clientReference: String,
-
-    status: {
-      type: String,
-      enum: ["pending", "paid", "failed", "released", "refunded"],
-      default: "pending",
-    },
-  },
-  { _id: false }
-);
-
 
 /* =========================
    LESSON SCHEMA
@@ -97,13 +72,27 @@ const lessonSchema = new mongoose.Schema(
       default: "unpaid",
     },
 
-    payment: paymentSchema,
-
-    amountPaid: {
-      type: Number,
-      default: 0, // net amount sent to teacher
+    // For linking to payment, dispute, and ledger entries
+    paymentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Payment",
     },
 
+    disputeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Dispute",
+    },
+
+    studentConfirmed: Boolean,
+    teacherConfirmed: Boolean,
+
+    sessionVerified: Boolean,
+
+    fundsStatus: {
+      type: String,
+      enum: ["held", "released", "refunded"],
+      default: "held",
+    },
     /* =====================
        FEES
     ===================== */

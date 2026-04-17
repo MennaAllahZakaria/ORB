@@ -4,12 +4,17 @@ const lessonRoutes = require("./lessonRoute");
 const completeLessonRoutes = require("./completeLessonRoute");
 const negotiationRoutes = require("./negotiationRoutes");
 const teacherRoutes = require("./teacherRoute");
-const paymentRoutes = require("./paymentRoute");
 const zegoRoutes = require("./zegoRoute");
 const revieweRoutes = require("./reviewsRoute");
 const pointsRoutes = require("./pointsRoute");
 const supportRoutes = require("./supportRoute");
 const notificationRoutes = require("./notificationRoute");
+//payment
+const payoutRoutes = require("./payment/payoutRoute");
+const disputeRoutes = require("./payment/disputeRoute");
+const webhookRoutes = require("./payment/webhookRoute");
+const paymentRoutes = require("./payment/paymentRoute");
+
 
 const mountRoutes = (app) => {
     app.use((req, res, next) => {
@@ -43,12 +48,16 @@ app.use("/lessons", lessonRoutes);
 app.use("/completeLessons",completeLessonRoutes);
 app.use("/negotiations", negotiationRoutes);
 app.use("/teachers", teacherRoutes);
-app.use("/payments", paymentRoutes);
 app.use("/zego", zegoRoutes);
 app.use("/reviews", revieweRoutes);
 app.use("/points", pointsRoutes);
 app.use("/support", supportRoutes);
 app.use("/notifications", notificationRoutes);
+//payment
+app.use("/payouts", payoutRoutes);
+app.use("/disputes", disputeRoutes);
+app.use("/webhooks", webhookRoutes);
+app.use("/payments", paymentRoutes);
 
 //=============================
 // 404 Handler

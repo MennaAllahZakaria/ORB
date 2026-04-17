@@ -374,6 +374,11 @@ exports.updateLessonRequest = asyncHandler(async (req, res, next) => {
     );
   }
 
+  // if lesson already paid, prevent price change to avoid complications with refunds and disputes
+  if (newPrice && lesson.paymentStatus === "paid") {
+    return next(new ApiError("Cannot update price for a paid lesson", 400));
+  }
+
   lesson.price = newPrice;
   lesson.title = newTitle || lesson.title;
   lesson.description = newDescription || lesson.description;
@@ -418,6 +423,10 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
 
     lesson.acceptedTeacher = teacherId;
     lesson.status = "approved";
+    if ( lesson.paymentStatus === "paid" && lesson.price !== teacherOffer.proposedPrice) {
+      return next(new ApiError("Cannot change price for a paid lesson", 400));
+    }
+    
     lesson.price = teacherOffer.proposedPrice;
 
     await lesson.save();
@@ -503,6 +512,9 @@ exports.createMeeting = asyncHandler(async (req, res, next) => {
 
     if (!lesson.acceptedTeacher) {
       return next(new ApiError("No teacher assigned yet", 400));
+    }
+    if (lesson.paymentStatus !== "paid") {
+      return next(new ApiError("Lesson is not paid yet", 400));
     }
  
     if (lesson.meetingRoomId) {
