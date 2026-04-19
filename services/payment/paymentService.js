@@ -6,7 +6,7 @@ const ApiError = require("../../utils/apiError");
 exports.createPayment = async (req, res) => {
   try{
   const { lessonId } = req.body;
-  const { FRONT_URL } = req.body;
+  const { SUCCESS_REDIRECT_URL } = req.body;
 
   const lesson = await Lesson.findById(lessonId);
 
@@ -28,8 +28,8 @@ exports.createPayment = async (req, res) => {
     {
       amount: Number(lesson.price).toFixed(2),
       currency: "EGP",
-      paymentOptions: [2], 
-      redirectUrl: "https://google.com", // test 
+      paymentOptions: [2,4,5,6,17,31], // 2: Credit/Debit Card, 4: Mobile Wallet ,5: Cash Through Fawry 6: Meeza, 17:ValU, 31:Apple Pay 
+      redirectUrl: SUCCESS_REDIRECT_URL? SUCCESS_REDIRECT_URL : "https://google.com",
       customerReference: customerReference,
       name: req.user.firstName + " " + req.user.lastName,
       email: req.user.email,
@@ -44,7 +44,7 @@ exports.createPayment = async (req, res) => {
   const payment = await Payment.create({
     userId: req.user._id,
     lessonId,
-    amount: lesson.price,
+    amount: totalAmount,
     customerReference: customerReference,
   });
 
@@ -81,5 +81,88 @@ exports.getPaymentById = async (req, res) => {
   res.status(200).json({
     message: "Payment retrieved successfully",
     data: payment,
+  });
+};
+
+exports.getMyPayments = async (req, res) => {
+  const userId = req.user._id;
+  const role = req.user.role;
+
+  /* ===============================
+     QUERY PARAMS
+  =============================== */
+
+  const page = Math.max(parseInt(req.query.page) || 1, 1);
+  const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+  const skip = (page - 1) * limit;
+
+  const { status, minAmount, maxAmount, fromDate, toDate } = req.query;
+
+  /* ===============================
+     BUILD FILTER
+  =============================== */
+
+  let filter = {};
+
+  // role-based filtering
+  if (role === "student") {
+    filter.userId = userId;
+  }
+
+  if (role === "teacher") {
+    const lessons = await Lesson.find({
+      acceptedTeacher: userId,
+    }).select("_id");
+
+    const lessonIds = lessons.map((l) => l._id);
+    filter.lessonId = { $in: lessonIds };
+  }
+
+  // status filter
+  if (status) {
+    filter.status = status;
+  }
+
+  // amount filter
+  if (minAmount || maxAmount) {
+    filter.amount = {};
+    if (minAmount) filter.amount.$gte = Number(minAmount);
+    if (maxAmount) filter.amount.$lte = Number(maxAmount);
+  }
+
+  // date filter
+  if (fromDate || toDate) {
+    filter.createdAt = {};
+    if (fromDate) filter.createdAt.$gte = new Date(fromDate);
+    if (toDate) filter.createdAt.$lte = new Date(toDate);
+  }
+
+  /* ===============================
+     QUERY DB
+  =============================== */
+
+  const [payments, total] = await Promise.all([
+    Payment.find(filter)
+      .populate("lessonId", "title price")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit),
+
+    Payment.countDocuments(filter),
+  ]);
+
+  /* ===============================
+     RESPONSE
+  =============================== */
+
+  res.status(200).json({
+    message: "Payments retrieved successfully",
+    data: payments,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
   });
 };
