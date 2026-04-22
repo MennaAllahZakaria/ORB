@@ -23,17 +23,18 @@ exports.createPayment = async (req, res) => {
 
 
   const customerReference = new Date().getTime().toString();
+  const totalAmount = Number(lesson.price).toFixed(2);
   const response = await axios.post(
     "https://back.easykash.net/api/directpayv1/pay",
     {
-      amount: Number(lesson.price).toFixed(2),
+      amount: totalAmount,
       currency: "EGP",
       paymentOptions: [2,4,5,6,17,31], // 2: Credit/Debit Card, 4: Mobile Wallet ,5: Cash Through Fawry 6: Meeza, 17:ValU, 31:Apple Pay 
       redirectUrl: SUCCESS_REDIRECT_URL? SUCCESS_REDIRECT_URL : "https://google.com",
       customerReference: customerReference,
       name: req.user.firstName + " " + req.user.lastName,
       email: req.user.email,
-      mobile: req.user.phone,
+      mobile: req.user.phone || "01234567890",
     },
     {
       headers: {
