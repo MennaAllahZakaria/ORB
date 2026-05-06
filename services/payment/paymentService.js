@@ -29,8 +29,8 @@ exports.createPayment = async (req, res) => {
     {
       amount: totalAmount,
       currency: "EGP",
-      paymentOptions: [2,4,5,6,17,31], // 2: Credit/Debit Card, 4: Mobile Wallet ,5: Cash Through Fawry 6: Meeza, 17:ValU, 31:Apple Pay 
-      redirectUrl: SUCCESS_REDIRECT_URL? SUCCESS_REDIRECT_URL : "https://google.com",
+      paymentOptions: [2, 4, 5, 6, 17, 31], // 2: Credit/Debit Card, 4: Mobile Wallet, 5: Fawry, 6: Meeza, 17: ValU, 31: Apple Pay
+      redirectUrl: SUCCESS_REDIRECT_URL || "https://google.com",
       customerReference: customerReference,
       name: req.user.firstName + " " + req.user.lastName,
       email: req.user.email,
