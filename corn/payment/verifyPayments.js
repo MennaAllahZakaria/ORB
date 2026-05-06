@@ -1,5 +1,5 @@
 const Payment = require("../../models/payment/paymentModel");
-const { handlePaymentSuccess } = require("../../services/payment/paymentService");
+const { handlePaymentSuccess } = require("../../services/payment/paymentHandleService");
 const axios = require("axios");
 
 module.exports = async () => {

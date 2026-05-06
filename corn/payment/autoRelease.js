@@ -1,5 +1,5 @@
 const Lesson = require("../../models/lessonModel");
-const { handleLessonCompletion } = require("../../services/payment/paymentService");
+const { handleLessonCompletion } = require("../../services/payment/paymentHandleService");
 
 module.exports = async () => {
 

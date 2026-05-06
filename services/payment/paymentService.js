@@ -14,11 +14,11 @@ exports.createPayment = async (req, res) => {
     return res.status(404).json({ message: "Lesson not found" });
   }
   if (lesson.status !== "approved") {
-    throw new Error("Lesson not ready for payment");
+    return next(new ApiError("Lesson not ready for payment", 400));
   }
 
   if (lesson.paymentStatus === "paid") {
-    throw new Error("Already paid");
+    return next(new ApiError("Already paid", 400));
   }
 
 
@@ -34,7 +34,7 @@ exports.createPayment = async (req, res) => {
       customerReference: customerReference,
       name: req.user.firstName + " " + req.user.lastName,
       email: req.user.email,
-      mobile: req.user.phone || "01234567890",
+      mobile: req.user.phone ? req.user.phone.replace(/\+/g, '') : "01234567890",
     },
     {
       headers: {
@@ -59,9 +59,9 @@ exports.createPayment = async (req, res) => {
     },
     });
   } catch (err) {
-     console.log("ERROR DATA:", err.response?.data);
+    console.log("ERROR DATA:", err.response?.data);
     console.log("ERROR STATUS:", err.response?.status);
-    throw err;
+    return next(new ApiError(err.response?.data?.message || err.message, err.response?.status || 500));
   }
 };
 
