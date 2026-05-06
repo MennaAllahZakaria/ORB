@@ -9,23 +9,17 @@ const cron = require("node-cron");
 
 exports.initializeCronJobs = () => {
 
-  // runs every hour
-  cron.schedule("0 * * * *", async () => {
-    await runLessonCleanupJob();
-  });
-
-  // runs every minute
+  // runLessonCleanupJob and runLessonCompletionJob now manage their own schedules internally
+  runLessonCleanupJob();
   runLessonCompletionJob();
 
   // runs every minute
-  // cron.schedule("* * * * *", async () => {
-  //   await checkNegotiationTimeout();
-  // });
+  cron.schedule("* * * * *", async () => {
+    await checkNegotiationTimeout();
+  });
 
-  //runs every 5 minutes
-  // cron.schedule("*/5 * * * *", async () => {
-  //  startLessonReminderCron();
-  // });
+  // runs every 5 minutes
+  startLessonReminderCron();
 
   // every 5 minutes
   cron.schedule("*/5 * * * *", async () => {

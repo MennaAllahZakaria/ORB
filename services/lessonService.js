@@ -281,6 +281,10 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
     );
   }
 
+  if (new Date(lesson.requestedDate) <= new Date()) {
+    return next(new ApiError("Cannot respond to a lesson whose time has passed", 400));
+  }
+
   await checkTeacherAvailability(teacherId, lesson.requestedDate, lesson.durationInMinutes);
 
   /* =============================
@@ -417,9 +421,19 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
       status: "pending"
     });
 
+    if (!lesson)
+      return next(new ApiError("Lesson not found or already approved", 404));
+
+    if (new Date(lesson.requestedDate) <= new Date()) {
+      return next(new ApiError("Cannot choose a teacher for a lesson whose time has passed", 400));
+    }
+
     const teacherOffer = lesson.interestedTeachers.find(
       t => t.teacher.toString() === teacherId.toString()
     );
+
+    if (!teacherOffer)
+      return next(new ApiError("This teacher has not expressed interest in this lesson", 400));
 
     lesson.acceptedTeacher = teacherId;
     lesson.status = "approved";
@@ -430,10 +444,6 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
     lesson.price = teacherOffer.proposedPrice;
 
     await lesson.save();
-
-
-  if (!lesson)
-    return next(new ApiError("Cannot choose this teacher", 400));
 
   /* ======================================
      CHECK IF THERE IS AN ACCEPTED THREAD
