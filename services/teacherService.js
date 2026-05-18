@@ -217,6 +217,46 @@ exports.getTeacherPayoutHistory = asyncHandler(async (req, res, next) => {
 });
 
 // ===============================
+// 💰 GET TEACHER BALANCE
+// ===============================
+const Ledger = require("../models/payment/ledgerModel");
+
+exports.getTeacherBalance = asyncHandler(async (req, res, next) => {
+  if (req.user.role !== "teacher") {
+    return next(new ApiError("Only teachers can view balance", 403));
+  }
+
+  const teacherId = req.user._id;
+
+  const balanceAgg = await Ledger.aggregate([
+    { $match: { userId: teacherId, status: "confirmed" } },
+    {
+      $group: {
+        _id: null,
+        balance: {
+          $sum: {
+            $cond: [
+              { $eq: ["$type", "credit"] },
+              "$amount",
+              { $multiply: ["$amount", -1] }
+            ]
+          }
+        }
+      }
+    }
+  ]);
+
+  const balance = balanceAgg[0]?.balance || 0;
+
+  res.status(200).json({
+    status: "success",
+    data: {
+      balance
+    }
+  });
+});
+
+// ===============================
 // 📚 GET ALL TEACHERS (Search + Filter + Pagination)
 // ===============================
 exports.getAllTeachers = asyncHandler(async (req, res, next) => {

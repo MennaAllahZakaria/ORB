@@ -4,6 +4,7 @@ const {
     updatePaymentInfo,
     getPaymentInfo,
     getTeacherPayoutHistory,
+    getTeacherBalance,
     getAllTeachers,
     getTeacher,
     //updateAvailableTimes
@@ -32,6 +33,11 @@ router.get(
 router.get(
     "/me/payout-history", allowedTo("teacher"),
     getTeacherPayoutHistory
+);
+// ================= TEACHER - GET BALANCE =================
+router.get(
+    "/me/balance", allowedTo("teacher"),
+    getTeacherBalance
 );
 // ================= TEACHER - GET PROFILE =================
 router.get(
