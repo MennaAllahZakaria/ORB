@@ -365,16 +365,21 @@ exports.rejectOffer = asyncHandler(async (req, res, next) => {
   message.type = "reject";
   await message.save();
 
+  // Close the thread as well
+  thread.status = "closed";
+  await thread.save();
+
   if (io){
     io.to(thread._id.toString()).emit("offerRejected", {
-      messageId
+      messageId,
+      threadId: thread._id
     });
     io.to(thread._id.toString()).emit("negotiationStatus", {
-      status: "offer_rejected",
+      status: "closed",
       messageId
     });
   }
-  res.json({ status: "success" });
+  res.json({ status: "success", message: "Offer rejected and negotiation closed" });
 });
 
 exports.cancelNegotiation = asyncHandler(async (req,res,next)=>{

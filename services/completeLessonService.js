@@ -460,20 +460,30 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
   const limit = Math.min(50, +req.query.limit || 10);
   const skip = (page - 1) * limit;
 
-  const { reviewStatus, role, from, to } = req.query;
+  const { reviewStatus, from, to } = req.query;
 
   /* ===========================
      MATCH
   ============================ */
 
   const match = {
-    reviewStatus: {
-      $in: ["disputed", "under_admin_review", "resolved_by_admin"]
-    }
+    $and: [
+      {
+        $or: [
+          { status: "problem" },
+          { reviewStatus: { $in: ["disputed", "under_admin_review", "resolved_by_admin"] } }
+        ]
+      },
+      {
+        $or: [
+          { student: userId },
+          { acceptedTeacher: userId }
+        ]
+      }
+    ]
   };
 
   if (reviewStatus) match.reviewStatus = reviewStatus;
-  if (role) match.role = role;
 
   if (from || to) {
     match.createdAt = {};
@@ -486,34 +496,7 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
   ============================ */
 
   const pipeline = [
-
     { $match: match },
-
-    /* ===========================
-       JOIN LESSON
-    ============================ */
-    {
-      $lookup: {
-        from: "lessons",
-        localField: "lesson",
-        foreignField: "_id",
-        as: "lesson"
-      }
-    },
-    { $unwind: "$lesson" },
-
-    /* ===========================
-       FILTER USER + INCOMPLETE
-    ============================ */
-    {
-      $match: {
-        "lesson.finalCompletionStatus": "incomplete",
-        $or: [
-          { "lesson.student": userId },
-          { "lesson.acceptedTeacher": userId }
-        ]
-      }
-    },
 
     /* ===========================
        JOIN REVIEW 
@@ -521,7 +504,7 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
     {
       $lookup: {
         from: "reviews",
-        localField: "lesson._id",
+        localField: "_id",
         foreignField: "lesson",
         as: "review"
       }
@@ -539,12 +522,12 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
     {
       $lookup: {
         from: "users",
-        localField: "lesson.student",
+        localField: "student",
         foreignField: "_id",
-        as: "lesson.student"
+        as: "student"
       }
     },
-    { $unwind: "$lesson.student" },
+    { $unwind: "$student" },
 
     /* ===========================
        POPULATE TEACHER
@@ -552,12 +535,17 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
     {
       $lookup: {
         from: "users",
-        localField: "lesson.acceptedTeacher",
+        localField: "acceptedTeacher",
         foreignField: "_id",
-        as: "lesson.acceptedTeacher"
+        as: "acceptedTeacher"
       }
     },
-    { $unwind: "$lesson.acceptedTeacher" },
+    {
+      $unwind: {
+        path: "$acceptedTeacher",
+        preserveNullAndEmptyArrays: true
+      }
+    },
 
     /* ===========================
        SORT
@@ -578,7 +566,7 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
     }
   ];
 
-  const result = await CompleteLesson.aggregate(pipeline);
+  const result = await Lesson.aggregate(pipeline);
 
   const data = result[0]?.data || [];
   const total = result[0]?.metadata[0]?.total || 0;

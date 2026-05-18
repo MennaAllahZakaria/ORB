@@ -90,6 +90,7 @@ exports.runLessonCompletionJob = () => {
         if (now <= new Date(expectedEndTime.getTime() + LESSON_DURATION_BUFFER)) continue;
 
         console.log(`[CRON] Marking missed lesson ${lesson._id} as problem`);
+        lesson.status = "problem";
         lesson.meetingStatus = "finished";
         lesson.finalCompletionStatus = "incomplete";
         lesson.reviewStatus = "disputed";

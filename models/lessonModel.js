@@ -53,6 +53,12 @@ const lessonSchema = new mongoose.Schema(
         proposedPrice: Number,
       },
     ],
+    rejectedByTeachers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
 
     acceptedTeacher: {
       type: mongoose.Schema.Types.ObjectId,
