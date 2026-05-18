@@ -158,7 +158,8 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
   const filter = {
     subject: { $in: teacher.teacherProfile.subjects },
     status: "pending",
-    "interestedTeachers.teacher": { $ne: req.user._id }
+    "interestedTeachers.teacher": { $ne: req.user._id },
+    rejectedByTeachers: { $ne: req.user._id }
   };
 
   const [lessons, total] = await Promise.all([
@@ -257,6 +258,11 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
     lesson.interestedTeachers = lesson.interestedTeachers.filter(
       (item) => !isSameId(item.teacher, teacherId)
     );
+
+    // Add teacher to rejectedByTeachers to hide this lesson from them forever
+    if (!lesson.rejectedByTeachers.includes(teacherId)) {
+      lesson.rejectedByTeachers.push(teacherId);
+    }
 
     await lesson.save();
 
