@@ -1,7 +1,9 @@
 const Payout = require("../../models/payment/payoutModel");
 const Ledger = require("../../models/payment/ledgerModel");
+const User = require("../../models/userModel");
 const asyncHandler = require("express-async-handler");
 const { handlePayout } = require("./paymentHandleService");
+const { sendNotification } = require("../../utils/notificationHelper");
 
 exports.requestPayout = asyncHandler(async (req, res) => {
   const { amount, method, details } = req.body;
@@ -41,6 +43,21 @@ exports.completePayout = asyncHandler(async (req, res) => {
       { payoutId: payout._id },
       { status: "confirmed" }
     );
+
+  // Notify Teacher
+  const teacher = await User.findById(payout.teacherId);
+  if (teacher) {
+    setImmediate(() => {
+      sendNotification({
+        recipient: teacher,
+        titleEn: "💸 Payout Completed",
+        titleAr: "💸 تم تحويل الرصيد",
+        bodyEn: `Your payout request of ${payout.amount} EGP has been processed successfully.`,
+        bodyAr: `تمت معالجة طلب سحب الرصيد الخاص بك بمبلغ ${payout.amount} جنيه بنجاح.`,
+        data: { type: "payout_completed", payoutId: payout._id.toString() }
+      });
+    });
+  }
 
   res.status(200).json({
     message: "Payout marked as completed",

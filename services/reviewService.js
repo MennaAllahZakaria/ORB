@@ -6,6 +6,7 @@ const User = require("../models/userModel");
 const { addPoints, deductPoints } = require("./pointsService");
 const ApiFeatures = require("../utils/apiFeatures");
 const ApiError = require("../utils/apiError");
+const { sendNotification } = require("../utils/notificationHelper");
 
 // ===============================
 // Helper: recalculate teacher rating
@@ -99,6 +100,21 @@ exports.createReview = asyncHandler(async (req, res, next) => {
 
   // Recalculate teacher rating
   await recalcTeacherRating(lesson.acceptedTeacher);
+
+  // Notify Teacher about new review
+  const teacher = await User.findById(lesson.acceptedTeacher);
+  if (teacher) {
+    setImmediate(() => {
+      sendNotification({
+        recipient: teacher,
+        titleEn: "⭐ New Review Received",
+        titleAr: "⭐ تقييم جديد",
+        bodyEn: `A student has left a ${rating}-star review for your lesson "${lesson.title}".`,
+        bodyAr: `قام طالب بترك تقييم ${rating} نجوم لحصتك "${lesson.title}".`,
+        data: { type: "new_review", lessonId: lesson._id.toString() }
+      });
+    });
+  }
 
   res.status(201).json({
     status: "success",

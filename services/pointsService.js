@@ -1,6 +1,7 @@
 const User = require("../models/userModel");
 const asyncHandler = require("express-async-handler");
 const ApiError = require("../utils/apiError");
+const { sendNotification } = require("../utils/notificationHelper");
 
 /**
  * Helper: validate points value
@@ -32,6 +33,18 @@ exports.addPoints = async (userId, points, reason = "") => {
   // Update level based on new points
   user.updateLevel();
   await user.save();
+
+  // Notify User about points added
+  setImmediate(() => {
+    sendNotification({
+      recipient: user,
+      titleEn: "🎉 Points Earned!",
+      titleAr: "🎉 حصلت على نقاط جديدة!",
+      bodyEn: `You have earned ${points} points for: ${reason}.`,
+      bodyAr: `لقد حصلت على ${points} نقطة بسبب: ${reason}.`,
+      data: { type: "points_added" }
+    });
+  });
 
   console.log(
     `✅ Added ${points} points to ${user.firstName || user.email} (${reason})`

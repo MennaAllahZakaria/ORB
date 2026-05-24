@@ -3,7 +3,9 @@ const Lesson = require("../../models/lessonModel");
 const Ledger = require("../../models/payment/ledgerModel");
 const Dispute = require("../../models/payment/disputeModel");
 const Payout = require("../../models/payment/payoutModel");
+const User = require("../../models/userModel");
 const mongoose = require("mongoose");
+const { sendNotification } = require("../../utils/notificationHelper");
 
 const axios = require("axios");
 
@@ -97,6 +99,21 @@ exports.handlePaymentSuccess = async ({
       }],
       { session }
     );
+
+    // Notify Teacher about payment received (pending)
+    const teacher = await User.findById(lesson.acceptedTeacher).session(session);
+    if (teacher) {
+      setImmediate(() => {
+        sendNotification({
+          recipient: teacher,
+          titleEn: "💰 Payment Received",
+          titleAr: "💰 تم استلام دفعة",
+          bodyEn: `A payment of ${teacherAmount} EGP for lesson "${lesson.title}" is now pending in your wallet.`,
+          bodyAr: `هناك دفعة قدرها ${teacherAmount} جنيه للحصة "${lesson.title}" قيد الانتظار في محفظتك.`,
+          data: { type: "payment_received", lessonId: lesson._id.toString() }
+        });
+      });
+    }
 
     // platform
     // await Ledger.create(
