@@ -30,7 +30,7 @@ const isSameId = (a, b) =>
 exports.createLessonRequest = asyncHandler(async (req, res, next) => {
   const io = getIO();
 
-  const { subject, requestedDate, durationInMinutes, price, title, isUrgent } = req.body;
+  const { subject, requestedDate, durationInMinutes, price, title } = req.body;
 
   /* =========================
      VALIDATION
@@ -46,10 +46,15 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
   }
 
   const lessonDate = new Date(requestedDate);
+  const now = new Date();
 
-  // If not urgent, requestedDate must be in the future.
-  // If urgent, we allow past dates (e.g., "now") and set a 15-minute grace period.
-  if (!isUrgent && lessonDate <= new Date()) {
+  // Auto-detect if lesson is urgent: 
+  // If the requested time is within the next 30 minutes OR was in the last 15 minutes
+  const diffInMinutes = (lessonDate - now) / (1000 * 60);
+  const isUrgentAuto = diffInMinutes <= 30 && diffInMinutes >= -15;
+
+  // If not urgent and time is in the past, reject it.
+  if (!isUrgentAuto && lessonDate <= now) {
     return next(new ApiError("requestedDate must be in the future", 400));
   }
 
@@ -64,7 +69,7 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
     requestedDate: lessonDate,
     durationInMinutes,
     price,
-    isUrgent: !!isUrgent,
+    isUrgent: isUrgentAuto,
     meetingStatus: "upcoming"
   });
 
