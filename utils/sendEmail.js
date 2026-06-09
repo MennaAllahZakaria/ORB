@@ -1,26 +1,26 @@
-const nodemailer = require("nodemailer");
+const SibApiV3Sdk = require("sib-api-v3-sdk");
 
-// Nodemailer
+const client = SibApiV3Sdk.ApiClient.instance;
+
+client.authentications["api-key"].apiKey =
+  process.env.BREVO_API_KEY;
+
+const emailApi = new SibApiV3Sdk.TransactionalEmailsApi();
+
 const sendEmail = async (options) => {
-  const transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: process.env.EMAIL_PORT, // if secure false port = 587, if true port= 465
-    secure: true,
-    auth: {
-      user: process.env.EMAIL_USER, 
-      pass: process.env.EMAIL_PASSWORD,
+  await emailApi.sendTransacEmail({
+    sender: {
+      name: "ORB",
+      email: "orb.company.edu@gmail.com",
     },
-  });
-
-  const mailOpts = {
-    from: `ORB <${process.env.EMAIL_USER}>`,
-    to: options.Email,
+    to: [
+      {
+        email: options.Email,
+      },
+    ],
     subject: options.subject,
-    text: options.message,
-  };
-
-  // 3) Send email
-  await transporter.sendMail(mailOpts);
+    textContent: options.message,
+  });
 };
 
 module.exports = sendEmail;
