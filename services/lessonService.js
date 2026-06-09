@@ -30,7 +30,7 @@ const isSameId = (a, b) =>
 exports.createLessonRequest = asyncHandler(async (req, res, next) => {
   const io = getIO();
 
-  const { subject, requestedDate, durationInMinutes, price, title } = req.body;
+  const { subject, requestedDate, durationInMinutes, price, title, isUrgent } = req.body;
 
   /* =========================
      VALIDATION
@@ -47,7 +47,9 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
 
   const lessonDate = new Date(requestedDate);
 
-  if (lessonDate <= new Date()) {
+  // If not urgent, requestedDate must be in the future.
+  // If urgent, we allow past dates (e.g., "now") and set a 15-minute grace period.
+  if (!isUrgent && lessonDate <= new Date()) {
     return next(new ApiError("requestedDate must be in the future", 400));
   }
 
@@ -62,6 +64,7 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
     requestedDate: lessonDate,
     durationInMinutes,
     price,
+    isUrgent: !!isUrgent,
     meetingStatus: "upcoming"
   });
 
@@ -287,7 +290,10 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
     );
   }
 
-  if (new Date(lesson.requestedDate) <= new Date()) {
+  // For urgent lessons, we allow responding even if requestedDate is slightly in the past
+  const now = new Date();
+  const gracePeriod = lesson.isUrgent ? (30 * 60 * 1000) : 0; // 30 mins grace for urgent
+  if (new Date(lesson.requestedDate).getTime() + gracePeriod <= now.getTime()) {
     return next(new ApiError("Cannot respond to a lesson whose time has passed", 400));
   }
 
@@ -430,7 +436,10 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
     if (!lesson)
       return next(new ApiError("Lesson not found or already approved", 404));
 
-    if (new Date(lesson.requestedDate) <= new Date()) {
+    // For urgent lessons, allow choosing teacher within grace period
+    const now = new Date();
+    const gracePeriod = lesson.isUrgent ? (30 * 60 * 1000) : 0;
+    if (new Date(lesson.requestedDate).getTime() + gracePeriod <= now.getTime()) {
       return next(new ApiError("Cannot choose a teacher for a lesson whose time has passed", 400));
     }
 

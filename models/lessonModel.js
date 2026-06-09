@@ -33,6 +33,11 @@ const lessonSchema = new mongoose.Schema(
       required: true,
     },
 
+    isUrgent: {
+      type: Boolean,
+      default: false,
+    },
+
     durationInMinutes: {
       type: Number,
       required: true,

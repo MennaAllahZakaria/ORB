@@ -86,8 +86,22 @@ exports.runLessonCompletionJob = () => {
 
       for (const lesson of missedLessons) {
         const durationMs = (lesson.durationInMinutes || 60) * 60 * 1000;
-        const expectedEndTime = new Date(lesson.requestedDate.getTime() + durationMs);
-        if (now <= new Date(expectedEndTime.getTime() + LESSON_DURATION_BUFFER)) continue;
+        
+        // For urgent lessons, we give a 1-hour grace period from the time they were APPROVED/PAID
+        // instead of the requestedDate which might be in the past.
+        let referenceTime = lesson.requestedDate;
+        if (lesson.isUrgent) {
+          // If urgent, use updatedAt (which changes when status becomes approved/paid) 
+          // or add a fixed buffer from now if it was just approved.
+          referenceTime = lesson.updatedAt; 
+        }
+
+        const expectedEndTime = new Date(referenceTime.getTime() + durationMs);
+        
+        // For urgent lessons, also add an extra 30 mins grace period to allow negotiation/setup
+        const extraBuffer = lesson.isUrgent ? (30 * 60 * 1000) : 0;
+
+        if (now <= new Date(expectedEndTime.getTime() + LESSON_DURATION_BUFFER + extraBuffer)) continue;
 
         console.log(`[CRON] Marking missed lesson ${lesson._id} as problem`);
         lesson.status = "problem";
