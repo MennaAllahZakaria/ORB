@@ -46,11 +46,6 @@ module.exports = async () => {
       //  SUCCESS
       if (data.status === "PAID") {
 
-        // amount validation
-        if (Number(data.Amount) !== payment.amount) {
-          console.error(`❌ Amount mismatch for payment ${payment._id}`);
-          continue;
-        }
 
         await handlePaymentSuccess({
           customerReference: payment.customerReference,
