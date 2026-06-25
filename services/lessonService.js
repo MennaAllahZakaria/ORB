@@ -295,12 +295,12 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
     );
   }
 
-  // For urgent lessons, we allow responding even if requestedDate is slightly in the past
+  // Allow responding even if requestedDate is in the past (up to 6 hours grace period)
   const now = new Date();
-  // const gracePeriod = lesson.isUrgent ? (30 * 60 * 1000) : 0; // 30 mins grace for urgent
-  // if (new Date(lesson.requestedDate).getTime() + gracePeriod <= now.getTime()) {
-  //   return next(new ApiError("Cannot respond to a lesson whose time has passed", 400));
-  // }
+  const gracePeriod = 6 * 60 * 60 * 1000; // 6 hours grace for all lessons
+  if (new Date(lesson.requestedDate).getTime() + gracePeriod <= now.getTime()) {
+    return next(new ApiError("Cannot respond to a lesson whose time has passed (more than 6 hours ago)", 400));
+  }
 
   await checkTeacherAvailability(teacherId, lesson.requestedDate, lesson.durationInMinutes);
 
@@ -441,12 +441,12 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
     if (!lesson)
       return next(new ApiError("Lesson not found or already approved", 404));
 
-    // For urgent lessons, allow choosing teacher within grace period
+    // Allow choosing teacher even if requestedDate is in the past (up to 6 hours grace period)
     const now = new Date();
-    // const gracePeriod = lesson.isUrgent ? (30 * 60 * 1000) : 0;
-    // if (new Date(lesson.requestedDate).getTime() + gracePeriod <= now.getTime()) {
-    //   return next(new ApiError("Cannot choose a teacher for a lesson whose time has passed", 400));
-    // }
+    const gracePeriod = 6 * 60 * 60 * 1000; // 6 hours grace
+    if (new Date(lesson.requestedDate).getTime() + gracePeriod <= now.getTime()) {
+      return next(new ApiError("Cannot choose a teacher for a lesson whose time has passed (more than 6 hours ago)", 400));
+    }
 
     const teacherOffer = lesson.interestedTeachers.find(
       t => t.teacher.toString() === teacherId.toString()
@@ -1092,11 +1092,16 @@ exports.cancelLessonRequest = asyncHandler(async (req, res, next) => {
   if (!isStudent && !isTeacher)
     return next(new ApiError("Not authorized", 403));
 
-  // prevent cancellation if less than 15 minutes to start
-  const diff = lesson.requestedDate - Date.now()
+  // prevent cancellation if less than 15 minutes to start ONLY IF it is paid OR already accepted by a teacher
+  const diff = lesson.requestedDate - Date.now();
 
-  if(diff < 15 * 60 * 1000)
-    return next(new ApiError("Cannot cancel lesson 15 minutes before start",400));
+  if (diff < 15 * 60 * 1000) {
+    // If the lesson is already paid or has an accepted teacher, we enforce the 15-minute rule
+    if (lesson.paymentStatus === "paid" || lesson.acceptedTeacher) {
+      return next(new ApiError("Cannot cancel lesson 15 minutes before start for paid or accepted lessons", 400));
+    }
+    // Otherwise (unpaid and no teacher accepted yet), we allow cancellation even within 15 minutes
+  }
 
   /* =========================
      BLOCK AFTER PAYMENT
@@ -1145,8 +1150,10 @@ exports.cancelLessonRequest = asyncHandler(async (req, res, next) => {
 
     }
 
-    // deduct points
-    await deductPoints(lesson.student, 15);
+    // deduct points ONLY IF it was already accepted by a teacher
+    if (lesson.acceptedTeacher) {
+      await deductPoints(lesson.student, 15);
+    }
 
   }
 

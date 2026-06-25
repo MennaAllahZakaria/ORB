@@ -19,13 +19,13 @@ exports.runLessonCleanupJob = async () => {
       );
 
       // 2. Clean up pending requests whose requested date has passed
-      // We give a 1 hour buffer after the requested date
-      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+      // We give a 6 hour buffer after the requested date to allow for late applications
+      const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
       const resultPassed = await Lesson.updateMany(
         {
           status: "pending",
           acceptedTeacher: null,
-          requestedDate: { $lt: oneHourAgo }
+          requestedDate: { $lt: sixHoursAgo }
         },
         { status: "expired" }
       );
