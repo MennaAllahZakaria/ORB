@@ -471,7 +471,9 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
       {
         $or: [
           { status: "problem" },
-          { reviewStatus: { $in: ["disputed", "under_admin_review", "resolved_by_admin"] } }
+          { finalCompletionStatus: "incomplete" },
+          { reviewStatus: { $in: ["disputed", "under_admin_review", "resolved_by_admin"] } },
+          { disputeFlag: true }
         ]
       },
       {
