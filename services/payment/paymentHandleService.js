@@ -40,7 +40,7 @@ exports.handlePaymentSuccess = async ({
 
     if (!payment) throw new Error("Payment not found");
 
-    if (payment.status === "paid") {
+    if (payment.status === "paid" || payment.isProcessed) {
       await session.commitTransaction();
       return payment;
     }
@@ -76,6 +76,7 @@ exports.handlePaymentSuccess = async ({
     payment.status = "paid";
     payment.providerRefNum = inquiry.easykashRef;
     payment.paidAt = new Date();
+    payment.isProcessed = true;
     await payment.save({ session });
 
     // update lesson
