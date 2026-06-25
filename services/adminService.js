@@ -470,10 +470,17 @@ exports.deleteStudent = asyncHandler(async (req, res, next) => {
 ========================= */
 
 exports.getLessonsWithIssues = asyncHandler(async (req, res, next) => {
-  const lessons = await Lesson.find({ completion: "incomplete" })
-  .populate('student', 'firstName lastName email')
-  .populate('acceptedTeacher', 'firstName lastName email')
-  .select('title subject price requestedDate durationInMinutes status paymentStatus completion reason_for_incomplete');
+  const lessons = await Lesson.find({
+    $or: [
+      { status: "problem" },
+      { finalCompletionStatus: "incomplete" },
+      { reviewStatus: { $in: ["disputed", "under_admin_review"] } },
+      { disputeFlag: true }
+    ]
+  })
+  .populate('student', 'firstName lastName email imageProfile')
+  .populate('acceptedTeacher', 'firstName lastName email imageProfile')
+  .select('title subject price requestedDate durationInMinutes status paymentStatus finalCompletionStatus reviewStatus disputeFlag');
 
   res.status(200).json({
     status: "success",
