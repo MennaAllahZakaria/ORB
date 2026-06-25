@@ -297,10 +297,10 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
 
   // For urgent lessons, we allow responding even if requestedDate is slightly in the past
   const now = new Date();
-  const gracePeriod = lesson.isUrgent ? (30 * 60 * 1000) : 0; // 30 mins grace for urgent
-  if (new Date(lesson.requestedDate).getTime() + gracePeriod <= now.getTime()) {
-    return next(new ApiError("Cannot respond to a lesson whose time has passed", 400));
-  }
+  // const gracePeriod = lesson.isUrgent ? (30 * 60 * 1000) : 0; // 30 mins grace for urgent
+  // if (new Date(lesson.requestedDate).getTime() + gracePeriod <= now.getTime()) {
+  //   return next(new ApiError("Cannot respond to a lesson whose time has passed", 400));
+  // }
 
   await checkTeacherAvailability(teacherId, lesson.requestedDate, lesson.durationInMinutes);
 
@@ -443,10 +443,10 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
 
     // For urgent lessons, allow choosing teacher within grace period
     const now = new Date();
-    const gracePeriod = lesson.isUrgent ? (30 * 60 * 1000) : 0;
-    if (new Date(lesson.requestedDate).getTime() + gracePeriod <= now.getTime()) {
-      return next(new ApiError("Cannot choose a teacher for a lesson whose time has passed", 400));
-    }
+    // const gracePeriod = lesson.isUrgent ? (30 * 60 * 1000) : 0;
+    // if (new Date(lesson.requestedDate).getTime() + gracePeriod <= now.getTime()) {
+    //   return next(new ApiError("Cannot choose a teacher for a lesson whose time has passed", 400));
+    // }
 
     const teacherOffer = lesson.interestedTeachers.find(
       t => t.teacher.toString() === teacherId.toString()
