@@ -88,34 +88,14 @@ exports.createLessonRequest = asyncHandler(async (req, res, next) => {
      FIND MATCHING TEACHERS (Optimized Query)
   ========================== */
 
-  const minHourly =
-    (price * 0.8 * 60) / durationInMinutes;
-
-  const maxHourly =
-    (price * 1.2 * 60) / durationInMinutes;
-
-  let teachers = await User.find(
+  // Get all teachers for this subject
+  const teachers = await User.find(
     {
       role: "teacher",
-      "teacherProfile.subjects": subject,
-      "teacherProfile.pricePerHour": {
-        $gte: minHourly,
-        $lte: maxHourly
-      }
+      "teacherProfile.subjects": subject
     },
     "firstName lastName email fcmToken preferredLang teacherProfile.pricePerHour imageProfile"
   );
-
-  // fallback لو مفيش حد في الرينج
-  if (!teachers.length) {
-    teachers = await User.find(
-      {
-        role: "teacher",
-        "teacherProfile.subjects": subject
-      },
-      "firstName lastName email fcmToken preferredLang imageProfile"
-    );
-  }
 
   /* =========================
      RESPONSE FIRST (NON BLOCKING)
@@ -150,7 +130,7 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
   }
 
   const teacher = await User.findById(req.user._id)
-    .select("teacherProfile.subjects")
+    .select("teacherProfile.subjects teacherProfile.pricePerHour")
     .lean();
 
   if (!teacher?.teacherProfile?.subjects?.length) {
@@ -170,13 +150,28 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
     rejectedByTeachers: { $ne: req.user._id }
   };
 
+  const teacherPricePerHour = teacher.teacherProfile.pricePerHour || 0;
+
   const [lessons, total] = await Promise.all([
     Lesson.aggregate([
       { $match: filter },
 
       {
         $addFields: {
-          interestedTeachersCount: { $size: "$interestedTeachers" }
+          interestedTeachersCount: { $size: "$interestedTeachers" },
+          // Calculate lesson hourly rate to compare with teacher's price
+          lessonHourlyRate: {
+            $divide: [
+              { $multiply: ["$price", 60] },
+              "$durationInMinutes"
+            ]
+          }
+        }
+      },
+      {
+        $addFields: {
+          // Absolute difference between teacher price and lesson hourly rate
+          priceDiff: { $abs: { $subtract: ["$lessonHourlyRate", teacherPricePerHour] } }
         }
       },
 
@@ -200,6 +195,7 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
           durationInMinutes: 1,
           createdAt: 1,
           interestedTeachersCount: 1,
+          priceDiff: 1,
 
           "student.firstName": 1,
           "student.lastName": 1,
@@ -208,7 +204,8 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
         }
       },
 
-      { $sort: { createdAt: -1 } },
+      // Sort by price difference first (closest first), then by newest
+      { $sort: { priceDiff: 1, createdAt: -1 } },
       { $skip: skip },
       { $limit: limit }
     ]),
