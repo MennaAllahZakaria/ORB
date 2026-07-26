@@ -37,6 +37,7 @@ exports.signup = asyncHandler(async (req, res, next) => {
   if (!email || !password) {
     return next(new ApiError("Email and password are required", 400));
   }
+  email = email.toLowerCase();
 
   // Block direct admin signup
   if (role === "admin") {
@@ -703,6 +704,10 @@ exports.completeProfile = asyncHandler(async (req, res, next) => {
     return next(new ApiError("Profile already completed", 400));
   }
 
+  allowedRoles = ["student", "teacher"];
+  if (!role || !allowedRoles.includes(role)) {
+    return next(new ApiError("Invalid role. Must be 'student' or 'teacher'", 400));
+  }
   user.role = role || user.role;
   user.phone = phone || user.phone;
   user.gender = gender || user.gender;

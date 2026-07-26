@@ -20,11 +20,23 @@ exports.protect = asyncHandler(async (req, res, next) => {
     }
 
     // verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET_KEY);
+    let decoded;
 
+    try {
+        decoded = jwt.verify(token, process.env.JWT_SECRET_KEY);
+    } catch (err) {
+        return next(new ApiError("Invalid or expired token. Please login again.", 401));
+    }
     const currentUser = await User.findById(decoded.userId);
     if (!currentUser) {
         return next(new ApiError("The user belonging to this token no longer exists.", 401));
+    }
+    if (currentUser.passwordChangedAt) {
+        const passwordChangedTimestamp = parseInt(currentUser.passwordChangedAt.getTime() / 1000, 10);  
+
+        if (decoded.iat < passwordChangedTimestamp) {
+            return next(new ApiError("User recently changed password! Please login again.", 401));
+        }
     }
 
     req.user = currentUser;

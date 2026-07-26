@@ -30,6 +30,15 @@ const {
 
 const { protect, allowedTo } = require("../middleware/authMiddleware");
 
+const {
+    loginLimiter,
+    signupLimiter,
+    googleLoginLimiter,
+    verifyEmailLimiter,
+    forgotPasswordLimiter,
+    verifyResetCodeLimiter,
+    resendCodeLimiter,
+} = require("../middlewares/rateLimit");
 
 const {uploadImageAndFile, attachUploadedLinks} = require("../middleware/uploadFileMiddleware");
 const router = express.Router();
@@ -37,27 +46,27 @@ const router = express.Router();
 // ================= AUTH =================
 
 // 📌 Signup (send verification email)
-router.post("/signup" ,uploadImageAndFile,attachUploadedLinks, signupValidator, signup);
+router.post("/signup" ,signupLimiter, uploadImageAndFile,attachUploadedLinks, signupValidator, signup);
 
 // 📌 Verify email (create account after code)
-router.post("/verifyEmailUser", verifyEmailValidator, verifyEmailUser);
+router.post("/verifyEmailUser", verifyEmailLimiter, verifyEmailValidator, verifyEmailUser);
 
 // 📌 Resend verification code
-router.post("/resendVerificationCode", resendVerificationCode);
+router.post("/resendVerificationCode", resendCodeLimiter, resendVerificationCode);
 
 // 📌 Login
-router.post("/login",loginValidator, login);
+router.post("/login", loginLimiter, loginValidator, login);
 
 // ================= PASSWORD RESET =================
 
 // 📌 Send reset code
-router.post("/forgetPassword",forgetPasswordValidator, forgetPassword);
+router.post("/forgetPassword", forgotPasswordLimiter, forgetPasswordValidator, forgetPassword);
 
 // 📌 Verify reset code
-router.post("/verifyForgotPasswordCode",verifyResetCodeValidator, verifyForgotPasswordCode);
+router.post("/verifyForgotPasswordCode", verifyResetCodeLimiter, verifyResetCodeValidator, verifyForgotPasswordCode);
 
 // 📌 Reset password
-router.post("/resetPassword",resetPasswordValidator, resetPassword);
+router.post("/resetPassword", forgotPasswordLimiter, resetPasswordValidator, resetPassword);
 // ================= UPDATE FCM TOKEN =================
 
 router.post("/updateFcmToken",protect, updateFcmToken);
