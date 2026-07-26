@@ -7,7 +7,9 @@ const sendEmail = require("../utils/sendEmail");
 const ApiError = require("../utils/apiError");
 const createToken = require("../utils/createToken"); // JWT
 const { encryptToken } = require("../utils/fcmToken");
+const { OAuth2Client } = require("google-auth-library");
 
+const client = new OAuth2Client();
 // ==================== Helpers ====================
 
 // Get bcrypt salt rounds from env or fallback
@@ -254,6 +256,15 @@ exports.login = asyncHandler(async (req, res, next) => {
     return next(new ApiError("Incorrect email or password", 401));
   }
 
+  if (!user.password) {
+  return next(
+    new ApiError(
+      "This account was created using Google. Please sign in with Google or set a password first.",
+      400
+    )
+  );
+}
+
   // Optional: block banned/inactive users
   if (user.status === "banned") {
     return next(new ApiError("Your account has been banned", 403));
@@ -281,6 +292,7 @@ exports.login = asyncHandler(async (req, res, next) => {
     status: "success",
     token,
     user,
+    isProfileCompleted: user.isProfileCompleted,
   });
 });
 
@@ -582,41 +594,97 @@ exports.updateProfile = asyncHandler(async (req, res, next) => {
 // @route   POST /auth/google-login
 // @access  Public
 exports.googleLogin = asyncHandler(async (req, res, next) => {
-  const { googleId, email, firstName, lastName, imageProfile } = req.body;
+  const { token } = req.body;
 
-  if (!googleId || !email) {
-    return next(new ApiError("Google ID and Email are required", 400));
+  if (!token) {
+    return next(new ApiError("Google token is required", 400));
   }
 
-  let user = await User.findOne({ $or: [{ googleId }, { email }] });
+  try {
+    // Verify Google ID Token
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: [
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.ANDROID_CLIENT_ID,
+        process.env.IOS_CLIENT_ID,
+        process.env.ANDROID_CLIENT_ID_2,
+      ].filter(Boolean),
+    });
 
-  if (user) {
-    // If user exists by email but has no googleId, link it
-    if (!user.googleId) {
+    const payload = ticket.getPayload();
+
+    const {
+      sub: googleId,
+      email,
+      given_name,
+      family_name,
+      picture,
+    } = payload;
+
+    // Find user by Google ID or Email
+    let user = await User.findOne({
+      $or: [{ googleId }, { email }],
+    });
+
+    // Link Google account if email already exists
+    if (user && !user.googleId) {
       user.googleId = googleId;
+
+      if (!user.imageProfile) {
+        user.imageProfile = picture;
+      }
+
       await user.save();
     }
-  } else {
-    // Create new user if not exists
-    user = await User.create({
-      googleId,
-      email,
-      firstName,
-      lastName,
-      imageProfile: imageProfile || "",
-      role: "student", // Default role, can be changed during profile completion
-      isProfileCompleted: false,
+
+    // Create new account if user doesn't exist
+    if (!user) {
+      user = await User.create({
+        googleId,
+        email,
+        firstName: given_name || "Google",
+        lastName: family_name || "User",
+        imageProfile: picture || "",
+        role: "student",
+        isVerified: true,
+        isProfileCompleted: false,
+      });
+    }
+
+    // Block banned users
+    if (user.status === "banned") {
+      return next(new ApiError("Your account has been banned", 403));
+    }
+
+    // Block inactive users
+    if (user.status === "inactive") {
+      return next(new ApiError("Your account is inactive", 403));
+    }
+
+    // Teacher must be approved
+    if (
+      user.role === "teacher" &&
+      user.teacherProfile?.verificationStatus !== "approved"
+    ) {
+      return next(new ApiError("Your account is not approved yet", 403));
+    }
+
+    // Generate JWT
+    const jwtToken = createToken(user._id);
+
+    res.status(200).json({
+      status: "success",
+      token: jwtToken,
+      user,
+      isProfileCompleted: user.isProfileCompleted,
     });
+
+  } catch (err) {
+    console.error("Google Login Error:", err);
+
+    return next(new ApiError("Invalid Google token", 401));
   }
-
-  const token = createToken(user._id);
-
-  res.status(200).json({
-    status: "success",
-    token,
-    user,
-    isProfileCompleted: user.isProfileCompleted,
-  });
 });
 
 // ==================== COMPLETE PROFILE ====================
@@ -642,7 +710,7 @@ exports.completeProfile = asyncHandler(async (req, res, next) => {
   if (role === "student") {
     user.studentProfile = studentProfile;
   } else if (role === "teacher") {
-    user.teacherProfile = teacherProfile;
+    user.teacherProfile = teacherProfile || {};
     user.teacherProfile.verificationStatus = "pending";
   }
 
@@ -670,6 +738,12 @@ exports.setPassword = asyncHandler(async (req, res, next) => {
 
   if (!user) {
     return next(new ApiError("User not found", 404));
+  }
+
+  if (user.password) {
+    return next(
+      new ApiError("Password already exists. Please use Change Password.", 400)
+    );
   }
 
   const saltRounds = getSaltRounds();
