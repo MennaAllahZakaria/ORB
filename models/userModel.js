@@ -111,8 +111,19 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, "password required"],
+      required: function() {
+        return !this.googleId; // Required only if not using Google Auth
+      },
       minlength: [8, "too short password"],
+    },
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true, // Allow multiple nulls
+    },
+    isProfileCompleted: {
+      type: Boolean,
+      default: false,
     },
 
     passwordChangedAt: Date,

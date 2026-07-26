@@ -12,7 +12,10 @@ const {
     updatePreferredLanguage,
     getLoggedInUser,
     updateImageProfile,
-    updateProfile
+    updateProfile,
+    googleLogin,
+    completeProfile,
+    setPassword
 } = require("../services/authService");
 
 const {
@@ -73,5 +76,10 @@ router.patch("/updateImageProfile", protect, uploadImageAndFile, attachUploadedL
 
 //================== UPDATE PROFILE ===================
 router.patch("/updateProfile", protect,  updateProfile);
+
+//================== GOOGLE AUTH ===================
+router.post("/google-login", googleLogin);
+router.post("/complete-profile", protect, completeProfile);
+router.put("/set-password", protect, setPassword);
 
 module.exports = router;

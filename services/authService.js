@@ -145,7 +145,8 @@ exports.verifyEmailUser = asyncHandler(async (req, res, next) => {
   // Create real user from tempUserData
   let user;
   try {
-    user = await User.create(verification.tempUserData);
+    const userData = { ...verification.tempUserData, isProfileCompleted: true };
+    user = await User.create(userData);
   } catch (err) {
     console.error("Error creating user during email verification:", err.message);
     // Clean up verification to avoid stuck records
@@ -574,5 +575,109 @@ exports.updateProfile = asyncHandler(async (req, res, next) => {
     status: "success",
     message: "Profile updated successfully.",
     data: { user },
+  });
+});
+
+// ==================== GOOGLE LOGIN ====================
+// @route   POST /auth/google-login
+// @access  Public
+exports.googleLogin = asyncHandler(async (req, res, next) => {
+  const { googleId, email, firstName, lastName, imageProfile } = req.body;
+
+  if (!googleId || !email) {
+    return next(new ApiError("Google ID and Email are required", 400));
+  }
+
+  let user = await User.findOne({ $or: [{ googleId }, { email }] });
+
+  if (user) {
+    // If user exists by email but has no googleId, link it
+    if (!user.googleId) {
+      user.googleId = googleId;
+      await user.save();
+    }
+  } else {
+    // Create new user if not exists
+    user = await User.create({
+      googleId,
+      email,
+      firstName,
+      lastName,
+      imageProfile: imageProfile || "",
+      role: "student", // Default role, can be changed during profile completion
+      isProfileCompleted: false,
+    });
+  }
+
+  const token = createToken(user._id);
+
+  res.status(200).json({
+    status: "success",
+    token,
+    user,
+    isProfileCompleted: user.isProfileCompleted,
+  });
+});
+
+// ==================== COMPLETE PROFILE ====================
+// @route   POST /auth/complete-profile
+// @access  Private (Logged in via Google)
+exports.completeProfile = asyncHandler(async (req, res, next) => {
+  const { role, studentProfile, teacherProfile, phone, gender } = req.body;
+
+  const user = await User.findById(req.user._id);
+
+  if (!user) {
+    return next(new ApiError("User not found", 404));
+  }
+
+  if (user.isProfileCompleted) {
+    return next(new ApiError("Profile already completed", 400));
+  }
+
+  user.role = role || user.role;
+  user.phone = phone || user.phone;
+  user.gender = gender || user.gender;
+
+  if (role === "student") {
+    user.studentProfile = studentProfile;
+  } else if (role === "teacher") {
+    user.teacherProfile = teacherProfile;
+    user.teacherProfile.verificationStatus = "pending";
+  }
+
+  user.isProfileCompleted = true;
+  await user.save();
+
+  res.status(200).json({
+    status: "success",
+    message: "Profile completed successfully",
+    user,
+  });
+});
+
+// ==================== SET PASSWORD (FOR GOOGLE USERS) ====================
+// @route   PUT /auth/set-password
+// @access  Private
+exports.setPassword = asyncHandler(async (req, res, next) => {
+  const { password } = req.body;
+
+  if (!password || password.length < 8) {
+    return next(new ApiError("Password must be at least 8 characters", 400));
+  }
+
+  const user = await User.findById(req.user._id);
+
+  if (!user) {
+    return next(new ApiError("User not found", 404));
+  }
+
+  const saltRounds = getSaltRounds();
+  user.password = await bcrypt.hash(password, saltRounds);
+  await user.save();
+
+  res.status(200).json({
+    status: "success",
+    message: "Password set successfully. You can now login with email and password.",
   });
 });
