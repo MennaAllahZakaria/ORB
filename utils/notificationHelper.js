@@ -71,6 +71,21 @@ exports.sendNotification = async ({
     return true;
   } catch (err) {
     console.error("[NotificationHelper] Error:", err.message);
+    const code = err.errorInfo?.code || err.code;
+    if (
+        code === "messaging/registration-token-not-registered" ||
+        code === "messaging/invalid-registration-token"
+    ) {
+        console.error("Invalid FCM token for user:", recipient.email);
+        await User.findByIdAndUpdate(
+            recipient._id,
+            {
+                $unset: {
+                    fcmToken: 1
+                }
+            }
+        );
+    }
     return false;
   }
 };

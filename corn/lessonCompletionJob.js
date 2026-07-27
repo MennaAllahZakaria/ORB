@@ -29,6 +29,11 @@ const sendLessonNotification = async (users, { titleEn, titleAr, bodyEn, bodyAr,
       });
     } catch (err) {
       console.error("[FCM] Failed:", err.message);
+        if (err.message.includes("messaging/registration-token-not-registered") || err.message.includes("messaging/invalid-registration-token")) {
+          console.error("Invalid FCM token for user:", user.email);
+          await User.findByIdAndUpdate(user._id, { fcmToken: null });
+        }
+      
     }
   }
 };

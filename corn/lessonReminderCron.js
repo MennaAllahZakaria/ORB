@@ -14,11 +14,35 @@ exports.startLessonReminderCron = () => {
 
     const now = new Date();
 
+    const next35Minutes = new Date(now.getTime() + 35 * 60 * 1000);
+
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const endOfToday = new Date(now);
+    endOfToday.setHours(23, 59, 59, 999);
+
     try {
 
       const lessons = await Lesson.find({
         status: "approved",
-        meetingStatus: "upcoming"
+        meetingStatus: "upcoming",
+        $or: [
+          {
+            halfHourReminderSent: false,
+            requestedDate: {
+              $gte: now,
+              $lte: next35Minutes
+            }
+          },
+          {
+            morningReminderSent: false,
+            requestedDate: {
+              $gte: startOfToday,
+              $lte: endOfToday
+            }
+          }
+        ]
       }).populate("student acceptedTeacher");
 
       for (let lesson of lessons) {
@@ -34,7 +58,7 @@ exports.startLessonReminderCron = () => {
           lessonDate.getMonth() === now.getMonth() &&
           lessonDate.getFullYear() === now.getFullYear();
 
-        const isMorning = now.getHours() === 8;
+        const isMorning = now.getHours() === 8 && now.getMinutes() < 5;
 
         if (
           sameDay &&
@@ -44,8 +68,12 @@ exports.startLessonReminderCron = () => {
 
           await sendReminder(lesson, "morning");
 
-          lesson.morningReminderSent = true;
-          await lesson.save();
+          await Lesson.updateOne(
+              { _id: lesson._id },
+              {
+                  morningReminderSent: true
+              }
+          );
         }
 
         /* =============================
@@ -59,8 +87,12 @@ exports.startLessonReminderCron = () => {
 
           await sendReminder(lesson, "halfHour");
 
-          lesson.halfHourReminderSent = true;
-          await lesson.save();
+          await Lesson.updateOne(
+              { _id: lesson._id },
+              {
+                  halfHourReminderSent: true
+              }
+          );
         }
 
       }
@@ -69,7 +101,10 @@ exports.startLessonReminderCron = () => {
       console.error("Cron error:", err);
     }
 
-  });
+  } ,{
+    timezone: "Africa/Cairo",
+  }
+);
 
 };
 
@@ -79,8 +114,11 @@ exports.startLessonReminderCron = () => {
 ========================================= */
 async function sendReminder(lesson, type) {
 
-  const users = [lesson.student, lesson.acceptedTeacher];
+    const users = [lesson.student];
 
+    if (lesson.acceptedTeacher) {
+      users.push(lesson.acceptedTeacher);
+    }
   for (let user of users) {
 
     if (!user?.fcmToken) continue;
@@ -107,11 +145,38 @@ async function sendReminder(lesson, type) {
 
     try {
       await admin.messaging().send({
-        notification: { title, body },
-        token
+        token,
+
+        notification: {
+          title,
+          body,
+        },
+
+        data: {
+          type: "lesson_reminder",
+          lessonId: lesson._id.toString(),
+          reminderType: type,
+          click_action: "FLUTTER_NOTIFICATION_CLICK",
+        },
       });
     } catch (err) {
       console.error("Reminder send error:", err);
+        const code = err.errorInfo?.code || err.code;
+        if (
+            code === "messaging/registration-token-not-registered" ||
+            code === "messaging/invalid-registration-token"
+        ) {
+
+            await User.findByIdAndUpdate(
+                user._id,
+                {
+                    $unset: {
+                        fcmToken: 1
+                    }
+                }
+            );
+
+        }
     }
   }
 }

@@ -57,5 +57,9 @@ exports.sendNegotiationNotification = async ({
 
   } catch (err) {
     console.error("Notification error:", err);
+    if (err.message.includes("messaging/registration-token-not-registered") || err.message.includes("messaging/invalid-registration-token")) {
+      console.error("Invalid FCM token for user:", receiver.email);
+      await User.findByIdAndUpdate(receiver._id, { fcmToken: null });
+    }
   }
 };

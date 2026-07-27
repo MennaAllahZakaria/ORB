@@ -80,6 +80,10 @@ exports.sendLessonNotifications = async (lesson, teachers, student) => {
 
       } catch (err) {
         console.error("Notification error:", err.message);
+        if (err.message.includes("messaging/registration-token-not-registered") || err.message.includes("messaging/invalid-registration-token")) {
+          console.error("Invalid FCM token for user:", teacher.email);
+          await User.findByIdAndUpdate(teacher._id, { fcmToken: null });
+        }
       }
 
     })
@@ -148,6 +152,10 @@ exports.sendInterestNotification = async (lesson, teacher , proposedPrice) => {
 
   } catch (err) {
     console.error("Interest notification error:", err.message);
+    if (err.message.includes("messaging/registration-token-not-registered") || err.message.includes("messaging/invalid-registration-token")) {
+      console.error("Invalid FCM token for user:", student.email);
+      await User.findByIdAndUpdate(student._id, { fcmToken: null });
+    }
   }
 }
 
@@ -213,6 +221,10 @@ exports.sendChooseTeacherNotification = async (lessonId, teacherId, studentUser)
 
   } catch (err) {
     console.error("ChooseTeacher notification error:", err.message);
+    if (err.message.includes("messaging/registration-token-not-registered") || err.message.includes("messaging/invalid-registration-token")) {
+      console.error("Invalid FCM token for user:", teacher.email);
+      await User.findByIdAndUpdate(teacher._id, { fcmToken: null });
+    }
   }
 }
 
@@ -273,5 +285,9 @@ exports.cancelLessonNotification = async (lessonId, recipientId , isStudent) =>
     }
   } catch (err) {
     console.error("Cancel lesson notification error:", err.message);
+    if (err.message.includes("messaging/registration-token-not-registered") || err.message.includes("messaging/invalid-registration-token")) {
+      console.error("Invalid FCM token for user:", recipient.email);
+      await User.findByIdAndUpdate(recipientId, { fcmToken: null });
+    }
   }
 }
