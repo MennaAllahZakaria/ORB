@@ -34,7 +34,7 @@ const paymentSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["pending", "paid", "failed", "refunded"],
+    enum: ["pending", "paid", "failed", "refunded" , "refund_pending"],
     default: "pending",
   },
 
@@ -44,6 +44,27 @@ const paymentSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+
+  refund: {
+    status: {
+        type: String,
+        enum: ["none","pending","completed"],
+        default:"none"
+    },
+
+    requestedAt: Date,
+
+    completedAt: Date,
+
+    amount:Number,
+
+    note:String,
+
+    processedBy:{
+        type:mongoose.Schema.Types.ObjectId,
+        ref:"User"
+    }
+},
 
 }, { timestamps: true });
 

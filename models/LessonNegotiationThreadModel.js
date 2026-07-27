@@ -45,7 +45,8 @@ const threadSchema = new mongoose.Schema(
     type: Date,
     default: Date.now,
     index: true
-  }
+  },
+  offerExpiresAt: Date,
 },
 { timestamps: true }
 );

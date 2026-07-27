@@ -156,9 +156,11 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
      SAVE LAST OFFER MESSAGE
   ========================== */
 
-  await Thread.updateOne(
+  await Thread.findByIdAndUpdate(
     { _id: threadId },
-    { lastOfferMessage: msg._id }
+    { lastOfferMessage: msg._id,
+      offerExpiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000) // 2 hours from now
+     }
   );
 
   /* =========================
@@ -281,6 +283,20 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
   if (!thread)
     return next(new ApiError("Offer cannot be accepted", 400));
 
+  // =========================
+  // CHECK IF OFFER EXPIRED
+  // =========================
+  if (thread.offerExpiresAt < Date.now()) {
+
+    thread.status="timeout";
+
+    await thread.save();
+
+    return next(
+    new ApiError("Offer expired",400)
+    );
+
+  }
   /* =========================
      UPDATE MESSAGE
   ========================== */

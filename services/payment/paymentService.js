@@ -49,6 +49,9 @@ exports.createPayment = async (req, res) => {
     customerReference: customerReference,
   });
 
+  lesson.paymentStatus = "pending";
+  await lesson.save();
+  
  console.log("SUCCESS:", response.data);
 
   res.status(200).json({

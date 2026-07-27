@@ -15,6 +15,7 @@ const ApiFeatures = require("../utils/apiFeatures");
 const { sendLessonNotifications , sendInterestNotification , sendChooseTeacherNotification , cancelLessonNotification } = require("../utils/lessonNotificaionHelper");
 const {checkTeacherAvailability} = require("../utils/helpers");
 const { createLessonMeeting } = require("./zegoService");
+const { handleRefund } = require("./payment/paymentHandleService");
 
 const { getIO } = require("../config/socket");
 
@@ -452,6 +453,12 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
     if (!teacherOffer)
       return next(new ApiError("This teacher has not expressed interest in this lesson", 400));
 
+    await checkTeacherAvailability(
+        teacherId,
+        lesson.requestedDate,
+        lesson.durationInMinutes
+    );
+
     lesson.acceptedTeacher = teacherId;
     lesson.status = "approved";
     if ( lesson.paymentStatus === "paid" && lesson.price !== teacherOffer.proposedPrice) {
@@ -540,8 +547,12 @@ exports.createMeeting = asyncHandler(async (req, res, next) => {
     if (!lesson.acceptedTeacher) {
       return next(new ApiError("No teacher assigned yet", 400));
     }
-    if (lesson.paymentStatus !== "paid") {
-      return next(new ApiError("Lesson is not paid yet", 400));
+    if (
+      lesson.paymentStatus !== "paid" ||
+      lesson.fundsStatus === "refund_pending" ||
+      lesson.fundsStatus === "refunded"
+    ) {
+        return next(new ApiError("Lesson is not available", 400));
     }
  
     if (lesson.meetingRoomId) {
@@ -1076,7 +1087,7 @@ exports.cancelLessonRequest = asyncHandler(async (req, res, next) => {
 
   const { lessonId } = req.params;
 
-  const lesson = await Lesson.findById(lessonId);
+  let lesson = await Lesson.findById(lessonId);
 
   if (!lesson)
     return next(new ApiError("Lesson not found", 404));
@@ -1089,57 +1100,175 @@ exports.cancelLessonRequest = asyncHandler(async (req, res, next) => {
   if (!isStudent && !isTeacher)
     return next(new ApiError("Not authorized", 403));
 
-  // prevent cancellation if less than 15 minutes to start ONLY IF it is paid OR already accepted by a teacher
-  const diff = lesson.requestedDate - Date.now();
+  const diff = lesson.requestedDate.getTime() - Date.now();
 
-  if (diff < 15 * 60 * 1000) {
-    // If the lesson is already paid or has an accepted teacher, we enforce the 15-minute rule
-    if (lesson.paymentStatus === "paid" || lesson.acceptedTeacher) {
-      return next(new ApiError("Cannot cancel lesson 15 minutes before start for paid or accepted lessons", 400));
-    }
-    // Otherwise (unpaid and no teacher accepted yet), we allow cancellation even within 15 minutes
-  }
+  /* =====================================
+      RELEASED MONEY
+  ===================================== */
 
-  /* =========================
-     BLOCK AFTER PAYMENT
-  ========================== */
-
-  if (
-    lesson.paymentStatus === "paid" ||
-    lesson.paymentStatus === "released"
-  ) {
+  if (lesson.fundsStatus === "released") {
     return next(
       new ApiError(
-        "Cannot cancel a lesson that has already been paid",
+        "This lesson can no longer be cancelled because the funds have already been released.",
         400
       )
     );
   }
 
-  /* =========================
-     STUDENT CANCEL LESSON
-  ========================== */
+  /* =====================================
+      REFUND ALREADY REQUESTED
+  ===================================== */
+
+  if (
+    lesson.paymentStatus === "refund_pending" ||
+    lesson.fundsStatus === "refund_pending"
+  ) {
+    return next(
+      new ApiError(
+        "Refund request already exists for this lesson.",
+        400
+      )
+    );
+  }
+
+  /* =====================================
+      ALREADY REFUNDED
+  ===================================== */
+
+  if (
+    lesson.paymentStatus === "refunded" ||
+    lesson.fundsStatus === "refunded"
+  ) {
+    return next(
+      new ApiError(
+        "This lesson has already been refunded.",
+        400
+      )
+    );
+  }
+
+  /* =====================================
+      15 MIN RULE
+  ===================================== */
+
+  if (
+    diff < 15 * 60 * 1000 &&
+    (lesson.paymentStatus === "paid" || lesson.acceptedTeacher)
+  ) {
+    return next(
+      new ApiError(
+        "Cannot cancel lesson within 15 minutes before its start.",
+        400
+      )
+    );
+  }
+
+  /* =====================================
+      STUDENT CANCEL
+  ===================================== */
 
   if (isStudent) {
 
-    if (lesson.status === "canceled")
+    if (lesson.status === "canceled") {
       return next(new ApiError("Lesson already canceled", 400));
+    }
 
-    lesson.status = "canceled";
-    lesson.canceledBy = "student";
+    if (lesson.paymentStatus === "paid") {
 
-    await lesson.save();
+      if (diff < 24 * 60 * 60 * 1000) {
+        return next(
+          new ApiError(
+            "Paid lessons can only be cancelled at least 24 hours before the lesson starts.",
+            400
+          )
+        );
+      }
 
-    if (io) {
+      await handleRefund({
+        lessonId: lesson._id,
+        requestedBy: req.user._id,
+        reason: "Student cancelled the lesson"
+      });
+
+      lesson = await Lesson.findById(lesson._id);
+
+    } else {
+
+      lesson.status = "canceled";
+      lesson.canceledBy = "student";
+
+      await lesson.save();
+
+    }
+
+    if (lesson.acceptedTeacher) {
+      await deductPoints(lesson.student, 15);
+    }
+
+  }
+
+  /* =====================================
+      TEACHER CANCEL
+  ===================================== */
+
+  if (isTeacher) {
+
+    if (lesson.paymentStatus === "paid") {
+
+      await handleRefund({
+        lessonId: lesson._id,
+        requestedBy: req.user._id,
+        reason: "Teacher cancelled the lesson"
+      });
+
+      lesson = await Lesson.findById(lesson._id);
+
+      lesson.acceptedTeacher = null;
+
+      lesson.interestedTeachers =
+        lesson.interestedTeachers.filter(
+          t => !isSameId(t.teacher, req.user._id)
+        );
+      lesson.canceledBy = "teacher";
+      await lesson.save();
+
+    } else {
+
+      lesson.acceptedTeacher = null;
+
+      lesson.status = "pending";
+
+      lesson.canceledBy = "teacher";
+
+      lesson.interestedTeachers =
+        lesson.interestedTeachers.filter(
+          t => !isSameId(t.teacher, req.user._id)
+        );
+
+      await lesson.save();
+
+    }
+
+  }
+
+    /* =====================================
+      SOCKET EVENTS
+  ===================================== */
+
+  if (io) {
+
+    if (isStudent) {
 
       io.to(`lesson_${lesson._id}`).emit("lessonCanceled", {
         lessonId: lesson._id,
         canceledBy: "student"
       });
 
-      io.to(`user_${lesson.acceptedTeacher}`).emit("lessonCanceled", {
-        lessonId: lesson._id
-      });
+      if (lesson.acceptedTeacher) {
+        io.to(`user_${lesson.acceptedTeacher}`).emit("lessonCanceled", {
+          lessonId: lesson._id
+        });
+      }
 
       io.to(`subject_${lesson.subject}`).emit("lessonRemoved", {
         lessonId: lesson._id
@@ -1147,26 +1276,7 @@ exports.cancelLessonRequest = asyncHandler(async (req, res, next) => {
 
     }
 
-    // deduct points ONLY IF it was already accepted by a teacher
-    if (lesson.acceptedTeacher) {
-      await deductPoints(lesson.student, 15);
-    }
-
-  }
-
-  /* =========================
-     TEACHER CANCEL
-  ========================== */
-
-  if (isTeacher) {
-
-    lesson.acceptedTeacher = null;
-    lesson.status = "pending";
-    lesson.canceledBy = "teacher";
-
-    await lesson.save();
-
-    if (io) {
+    if (isTeacher) {
 
       io.to(`lesson_${lesson._id}`).emit("teacherCanceledLesson", {
         lessonId: lesson._id,
@@ -1178,30 +1288,48 @@ exports.cancelLessonRequest = asyncHandler(async (req, res, next) => {
         teacherId: req.user._id
       });
 
-      // يظهر الدرس مرة أخرى للمدرسين
-      io.to(`subject_${lesson.subject}`).emit("newLessonRequest", {
-        _id: lesson._id,
-        title: lesson.title,
-        subject: lesson.subject,
-        price: lesson.price,
-        requestedDate: lesson.requestedDate
-      });
+      // لو الدرس غير مدفوع نرجعه يظهر للمدرسين
+      if (lesson.paymentStatus !== "refund_pending") {
+
+        io.to(`subject_${lesson.subject}`).emit("newLessonRequest", {
+          _id: lesson._id,
+          title: lesson.title,
+          subject: lesson.subject,
+          price: lesson.price,
+          requestedDate: lesson.requestedDate
+        });
+
+      }
 
     }
 
   }
 
+  /* =====================================
+      RESPONSE
+  ===================================== */
+
   res.status(200).json({
     status: "success",
-    message: "Lesson cancellation processed",
+    message:
+      lesson.paymentStatus === "refund_pending"
+        ? "Lesson cancelled successfully. Refund request has been created."
+        : "Lesson cancelled successfully.",
     data: lesson
   });
 
-  /* =========================
-     BACKGROUND NOTIFICATION
-  ========================== */
+  /* =====================================
+      BACKGROUND NOTIFICATION
+  ===================================== */
+
   setImmediate(() => {
-    cancelLessonNotification(lesson, req.user._id , req.user.role === "student" );
+
+    cancelLessonNotification(
+      lesson,
+      req.user._id,
+      isStudent
+    );
+
   });
 
 });

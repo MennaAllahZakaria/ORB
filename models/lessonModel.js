@@ -79,7 +79,7 @@ const lessonSchema = new mongoose.Schema(
     ===================== */
     paymentStatus: {
       type: String,
-      enum: ["unpaid", "pending", "paid", "released", "refunded"],
+      enum: ["unpaid", "pending", "paid", "released", "refunded", "refund_pending"],
       default: "unpaid",
     },
 
@@ -100,9 +100,14 @@ const lessonSchema = new mongoose.Schema(
     sessionVerified: Boolean,
 
     fundsStatus: {
-      type: String,
-      enum: ["held", "released", "refunded"],
-      default: "held",
+        type: String,
+        enum: [
+            "holding",
+            "released",
+            "refund_pending",
+            "refunded"
+        ],
+        default: "holding"
     },
     /* =====================
        FEES

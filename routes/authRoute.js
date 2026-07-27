@@ -38,7 +38,7 @@ const {
     forgotPasswordLimiter,
     verifyResetCodeLimiter,
     resendCodeLimiter,
-} = require("../middlewares/rateLimit");
+} = require("../middleware/rateLimit");
 
 const {uploadImageAndFile, attachUploadedLinks} = require("../middleware/uploadFileMiddleware");
 const router = express.Router();

@@ -46,17 +46,19 @@ exports.handlePaymentSuccess = async ({
     }
 
     const inquiry = await verifyEasyKashPayment(customerReference);
+    const lesson = await Lesson.findById(payment.lessonId).session(session);
+    if (!lesson) throw new Error("Lesson not found");
 
     if (inquiry.status !== "PAID") {
       throw new Error("Payment not completed");
+      lesson.paymentStatus = "unpaid";
+      await lesson.save({ session });
     }
 
     if (Number(inquiry.Amount) !== payment.amount) {
       throw new Error("Amount mismatch");
     }
 
-    const lesson = await Lesson.findById(payment.lessonId).session(session);
-    if (!lesson) throw new Error("Lesson not found");
 
     if (!lesson.acceptedTeacher) {
       throw new Error("No teacher assigned");
@@ -148,6 +150,12 @@ exports.handleLessonCompletion = async (lessonId) => {
   if (!lesson) throw new Error("Lesson not found");
 
   if (lesson.paymentStatus !== "paid") throw new Error("Not paid");
+
+  if (lesson.paymentStatus === "refund_pending")
+  throw new Error("Refund is pending");
+
+  if (lesson.paymentStatus === "refunded")
+    throw new Error("Lesson already refunded");
 
   if (lesson.fundsStatus === "released") return lesson;
 
@@ -340,4 +348,190 @@ exports.handlePayout = async ({ teacherId, amount, method, details }) => {
   } finally {
     session.endSession();
   }
+};
+
+exports.handleRefund = async ({
+  lessonId,
+  reason = "Lesson cancelled",
+  requestedBy,
+}) => {
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+
+    /* ===============================
+       GET LESSON
+    =============================== */
+
+    const lesson = await Lesson.findById(lessonId).session(session);
+
+    if (!lesson)
+      throw new Error("Lesson not found");
+
+    /* ===============================
+       GET PAYMENT
+    =============================== */
+
+    const payment = await Payment.findOne({
+      lessonId: lesson._id,
+    }).session(session);
+
+    if (!payment)
+      throw new Error("Payment not found");
+
+    /* ===============================
+       VALIDATIONS
+    =============================== */
+
+    if (payment.status !== "paid") {
+      throw new Error("Payment is not eligible for refund");
+    }
+
+    if (
+      payment.refund &&
+      payment.refund.status !== "none"
+    ) {
+      throw new Error("Refund already requested");
+    }
+
+    if (lesson.fundsStatus === "released") {
+      throw new Error("Funds already released to teacher");
+    }
+
+    /* ===============================
+       CANCEL PENDING TEACHER LEDGER
+    =============================== */
+
+    await Ledger.updateMany(
+      {
+        paymentId: payment._id,
+        status: "pending",
+      },
+      {
+        status: "cancelled",
+      },
+      { session }
+    );
+
+    /* ===============================
+       UPDATE PAYMENT
+    =============================== */
+
+    payment.status = "refund_pending";
+
+    payment.refund = {
+      status: "pending",
+      requestedAt: new Date(),
+      amount: payment.amount,
+      note: reason,
+      processedBy: requestedBy,
+    };
+
+    await payment.save({ session });
+
+    /* ===============================
+       UPDATE LESSON
+    =============================== */
+
+    lesson.paymentStatus = "refund_pending";
+    lesson.fundsStatus = "refund_pending";
+    lesson.status = "canceled";
+    lesson.canceledBy =
+      requestedBy.toString() === lesson.student.toString()
+        ? "student"
+        : "teacher";
+
+    await lesson.save({ session });
+
+    /* ===============================
+       COMMIT
+    =============================== */
+
+    await session.commitTransaction();
+
+    /* ===============================
+       NOTIFICATIONS
+    =============================== */
+
+    const student = await User.findById(lesson.student);
+
+    if (student) {
+
+      setImmediate(() => {
+        sendNotification({
+          recipient: student,
+
+          titleEn: "Refund Requested",
+          titleAr: "تم استلام طلب الاسترداد",
+
+          bodyEn:
+            "Your refund request has been received and will be reviewed by the administration.",
+
+          bodyAr:
+            "تم استلام طلب استرداد المبلغ وسيتم مراجعته من قبل الإدارة.",
+
+          data: {
+            type: "refund_requested",
+            lessonId: lesson._id.toString(),
+          },
+        });
+      });
+
+    }
+
+    if (lesson.acceptedTeacher) {
+
+      const teacher = await User.findById(
+        lesson.acceptedTeacher
+      );
+
+      if (teacher) {
+
+        setImmediate(() => {
+          sendNotification({
+            recipient: teacher,
+
+            titleEn: "Lesson Cancelled",
+            titleAr: "تم إلغاء الحصة",
+
+            bodyEn:
+              "The lesson has been cancelled and the payment is pending refund.",
+
+            bodyAr:
+              "تم إلغاء الحصة، وجارٍ استرداد المبلغ للطالب.",
+
+            data: {
+              type: "lesson_cancelled",
+              lessonId: lesson._id.toString(),
+            },
+          });
+        });
+
+      }
+
+    }
+
+    return {
+      success: true,
+      payment,
+      lesson,
+    };
+
+  }
+
+  catch (err) {
+
+    await session.abortTransaction();
+    throw err;
+
+  }
+
+  finally {
+
+    session.endSession();
+
+  }
+
 };
