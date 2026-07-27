@@ -7,6 +7,7 @@ const {
     getTeacherBalance,
     getAllTeachers,
     getTeacher,
+    resubmitVerification,
     //updateAvailableTimes
 } = require("../services/teacherService");
 
@@ -52,5 +53,10 @@ router.get(
 // ================= GET ALL TEACHERS (Search + Filter + Pagination) =================
 router.get("/", getAllTeachers);
 
+// ================= TEACHER - RESUBMIT VERIFICATION =================
+router.post(
+    "/me/resubmit-verification", allowedTo("teacher"),
+    resubmitVerification
+);
 
 module.exports = router;

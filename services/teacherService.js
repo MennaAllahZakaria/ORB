@@ -394,6 +394,34 @@ function isOverlapping(times) {
   return false;
 }
 
+exports.resubmitVerification = asyncHandler(async(req,res,next)=>{
+
+    const teacher = await User.findById(req.user._id);
+
+    if(teacher.role !== "teacher"){
+        return next(new ApiError("Only teachers can resubmit.",403));
+    }
+
+    if(teacher.teacherProfile.verificationStatus !== "rejected"){
+        return next(new ApiError("You can only resubmit after rejection.",400));
+    }
+
+    teacher.teacherProfile = {
+        ...teacher.teacherProfile.toObject(),
+        ...req.body,
+        verificationStatus:"pending",
+        verificationReason:null
+    };
+
+    await teacher.save();
+
+    res.status(200).json({
+        success:true,
+        message:"Application submitted successfully."
+    });
+
+});
+
 // ===============================
 // ⏰ UPDATE TEACHER AVAILABLE TIMES
 // ===============================
