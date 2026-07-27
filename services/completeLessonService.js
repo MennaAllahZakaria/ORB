@@ -353,7 +353,7 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
     // select fields
     // ======================
     {
-      $project: {
+      $: {
         title: 1,
         subject: 1,
         price: 1,
@@ -462,9 +462,9 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
 
   const { reviewStatus, from, to } = req.query;
 
-  /* ===========================
+  /* =====================================
      MATCH
-  ============================ */
+  ===================================== */
 
   const match = {
     $and: [
@@ -472,7 +472,15 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
         $or: [
           { status: "problem" },
           { finalCompletionStatus: "incomplete" },
-          { reviewStatus: { $in: ["disputed", "under_admin_review", "resolved_by_admin"] } },
+          {
+            reviewStatus: {
+              $in: [
+                "disputed",
+                "under_admin_review",
+                "resolved_by_admin"
+              ]
+            }
+          },
           { disputeFlag: true }
         ]
       },
@@ -485,24 +493,31 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
     ]
   };
 
-  if (reviewStatus) match.reviewStatus = reviewStatus;
+  if (reviewStatus)
+    match.reviewStatus = reviewStatus;
 
   if (from || to) {
     match.createdAt = {};
-    if (from) match.createdAt.$gte = new Date(from);
-    if (to) match.createdAt.$lte = new Date(to);
+
+    if (from)
+      match.createdAt.$gte = new Date(from);
+
+    if (to)
+      match.createdAt.$lte = new Date(to);
   }
 
-  /* ===========================
+  /* =====================================
      PIPELINE
-  ============================ */
+  ===================================== */
 
   const pipeline = [
+
     { $match: match },
 
-    /* ===========================
-       JOIN REVIEW 
-    ============================ */
+    /* =====================================
+       REVIEW
+    ===================================== */
+
     {
       $lookup: {
         from: "reviews",
@@ -514,13 +529,181 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
 
     {
       $addFields: {
-        review: { $arrayElemAt: ["$review", 0] }
+        review: {
+          $arrayElemAt: ["$review", 0]
+        }
       }
     },
 
-    /* ===========================
-       POPULATE STUDENT
-    ============================ */
+    /* =====================================
+       COMPLETION SUBMISSIONS
+    ===================================== */
+
+    {
+      $lookup: {
+        from: "completelessons",
+        localField: "_id",
+        foreignField: "lesson",
+        as: "submissions"
+      }
+    },
+
+    {
+      $addFields: {
+
+        studentSubmission: {
+          $arrayElemAt: [
+            {
+              $filter: {
+                input: "$submissions",
+                as: "submission",
+                cond: {
+                  $eq: [
+                    "$$submission.role",
+                    "student"
+                  ]
+                }
+              }
+            },
+            0
+          ]
+        },
+
+        teacherSubmission: {
+          $arrayElemAt: [
+            {
+              $filter: {
+                input: "$submissions",
+                as: "submission",
+                cond: {
+                  $eq: [
+                    "$$submission.role",
+                    "teacher"
+                  ]
+                }
+              }
+            },
+            0
+          ]
+        }
+
+      }
+    },
+
+    /* =====================================
+       DISPUTE REASON
+    ===================================== */
+
+    {
+      $addFields: {
+
+        disputeReason: {
+
+          $switch: {
+
+            branches: [
+
+              {
+                case: {
+                  $and: [
+                    {
+                      $eq: [
+                        "$studentSubmission.completionStatus",
+                        "completed"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$teacherSubmission.completionStatus",
+                        "incomplete"
+                      ]
+                    }
+                  ]
+                },
+                then: "Student marked lesson completed while teacher reported it incomplete."
+              },
+
+              {
+                case: {
+                  $and: [
+                    {
+                      $eq: [
+                        "$studentSubmission.completionStatus",
+                        "incomplete"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$teacherSubmission.completionStatus",
+                        "completed"
+                      ]
+                    }
+                  ]
+                },
+                then: "Teacher marked lesson completed while student reported it incomplete."
+              },
+
+              {
+                case: {
+                  $and: [
+                    {
+                      $eq: [
+                        "$studentSubmission.completionStatus",
+                        "incomplete"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$teacherSubmission.completionStatus",
+                        "incomplete"
+                      ]
+                    },
+                    {
+                      $ne: [
+                        "$studentSubmission.reasonForIncomplete",
+                        "$teacherSubmission.reasonForIncomplete"
+                      ]
+                    }
+                  ]
+                },
+                then: "Student and teacher reported different reasons for the incomplete lesson."
+              },
+
+              {
+                case: {
+                  $eq: [
+                    "$reviewStatus",
+                    "under_admin_review"
+                  ]
+                },
+                then: "Waiting for admin review."
+              },
+
+              {
+                case: {
+                  $eq: [
+                    "$reviewStatus",
+                    "resolved_by_admin"
+                  ]
+                },
+                then: "Resolved by administrator."
+              }
+
+            ],
+
+            default: "Problem detected."
+
+          }
+
+        }
+
+      }
+    },
+
+    /* =====================================
+       POPULATE USERS
+    ===================================== */
+
     {
       $lookup: {
         from: "users",
@@ -529,11 +712,11 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
         as: "student"
       }
     },
-    { $unwind: "$student" },
 
-    /* ===========================
-       POPULATE TEACHER
-    ============================ */
+    {
+      $unwind: "$student"
+    },
+
     {
       $lookup: {
         from: "users",
@@ -542,49 +725,166 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
         as: "acceptedTeacher"
       }
     },
+
     {
       $unwind: {
         path: "$acceptedTeacher",
         preserveNullAndEmptyArrays: true
       }
     },
+        /* =====================================
+       PROJECT
+    ===================================== */
 
-    /* ===========================
+    {
+      $project: {
+
+        title: 1,
+        subject: 1,
+        price: 1,
+        requestedDate: 1,
+        durationInMinutes: 1,
+
+        status: 1,
+        reviewStatus: 1,
+        finalCompletionStatus: 1,
+        disputeFlag: 1,
+        disputeReason: 1,
+
+        review: 1,
+
+        "student._id": 1,
+        "student.firstName": 1,
+        "student.lastName": 1,
+        "student.email": 1,
+        "student.imageProfile": 1,
+
+        "acceptedTeacher._id": 1,
+        "acceptedTeacher.firstName": 1,
+        "acceptedTeacher.lastName": 1,
+        "acceptedTeacher.email": 1,
+        "acceptedTeacher.imageProfile": 1,
+
+        studentSubmission: {
+          completionStatus:
+            "$studentSubmission.completionStatus",
+
+          reasonForIncomplete:
+            "$studentSubmission.reasonForIncomplete",
+
+          description:
+            "$studentSubmission.description",
+
+          proofImage:
+            "$studentSubmission.proofImage",
+
+          submittedAt:
+            "$studentSubmission.createdAt",
+
+          reviewStatus:
+            "$studentSubmission.reviewStatus",
+
+          adminReview:
+            "$studentSubmission.adminReview"
+        },
+
+        teacherSubmission: {
+          completionStatus:
+            "$teacherSubmission.completionStatus",
+
+          reasonForIncomplete:
+            "$teacherSubmission.reasonForIncomplete",
+
+          description:
+            "$teacherSubmission.description",
+
+          proofImage:
+            "$teacherSubmission.proofImage",
+
+          submittedAt:
+            "$teacherSubmission.createdAt",
+
+          reviewStatus:
+            "$teacherSubmission.reviewStatus",
+
+          adminReview:
+            "$teacherSubmission.adminReview"
+        }
+      }
+    },
+
+    /* =====================================
        SORT
-    ============================ */
-    { $sort: { createdAt: -1 } },
+    ===================================== */
 
-    /* ===========================
-       FACET (pagination + total)
-    ============================ */
+    {
+      $sort: {
+        createdAt: -1
+      }
+    },
+
+    /* =====================================
+       PAGINATION
+    ===================================== */
+
     {
       $facet: {
-        metadata: [{ $count: "total" }],
+
+        metadata: [
+          {
+            $count: "total"
+          }
+        ],
+
         data: [
-          { $skip: skip },
-          { $limit: limit }
+          {
+            $skip: skip
+          },
+          {
+            $limit: limit
+          }
         ]
+
       }
     }
+
   ];
+
+  /* =====================================
+     EXECUTE
+  ===================================== */
 
   const result = await Lesson.aggregate(pipeline);
 
   const data = result[0]?.data || [];
-  const total = result[0]?.metadata[0]?.total || 0;
 
-  /* ===========================
+  const total =
+    result[0]?.metadata?.[0]?.total || 0;
+
+  /* =====================================
      RESPONSE
-  ============================ */
+  ===================================== */
 
   res.status(200).json({
+
     status: "success",
+
     page,
+
     limit,
+
     total,
+
     totalPages: Math.ceil(total / limit),
+
+    hasNextPage: page * limit < total,
+
+    hasPrevPage: page > 1,
+
     results: data.length,
+
     data
+
   });
 
 });
@@ -713,7 +1013,7 @@ exports.getExpiredLessons = asyncHandler(async (req, res, next) => {
     =============================== */
 
     {
-      $project: {
+      $: {
         title: 1,
         subject: 1,
         price: 1,
