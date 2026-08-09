@@ -274,6 +274,10 @@ exports.login = asyncHandler(async (req, res, next) => {
     return next(new ApiError("Your account is inactive", 403));
   }
 
+  if (!user.isProfileCompleted) {
+    return next(new ApiError("Please complete your profile before logging in", 403));
+  }
+
   // Teacher must be approved
   if (user.role === "teacher") {
     const verificationStatus = user.teacherProfile?.verificationStatus;
