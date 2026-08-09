@@ -353,7 +353,7 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
     // select fields
     // ======================
     {
-      $: {
+      $project: {
         title: 1,
         subject: 1,
         price: 1,

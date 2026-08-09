@@ -1,5 +1,6 @@
 const asyncHandler = require("express-async-handler");
 const ApiError = require("../utils/apiError");
+const mongoose = require("mongoose");
 
 const User = require("../models/userModel");
 const Lesson = require("../models/lessonModel");
@@ -144,11 +145,41 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
   const limit = Math.min(50, Number(req.query.limit) || 20);
   const skip = (page - 1) * limit;
 
+  const now = new Date();
+
+  const sixHoursAgo = new Date(
+    now.getTime() - 6 * 60 * 60 * 1000
+  );
+
   const filter = {
     subject: { $in: teacher.teacherProfile.subjects },
+
     status: "pending",
-    "interestedTeachers.teacher": { $ne: req.user._id },
-    rejectedByTeachers: { $ne: req.user._id }
+
+    $or: [
+      // Scheduled lessons
+      {
+        isUrgent: false,
+        requestedDate: { $gte: now }
+      },
+
+      // Immediate lessons
+      {
+        isUrgent: true,
+        requestedDate: {
+          $gte: sixHoursAgo,
+          $lte: now
+        }
+      }
+    ],
+
+    "interestedTeachers.teacher": {
+      $ne: req.user._id
+    },
+
+    rejectedByTeachers: {
+      $ne: req.user._id
+    }
   };
 
   const teacherPricePerHour = teacher.teacherProfile.pricePerHour || 0;
@@ -243,43 +274,72 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
 
   const { lessonId } = req.params;
   const { response, proposedPrice } = req.body;
+
   const teacherId = req.user._id;
 
-  if (proposedPrice && proposedPrice <= 0) {
+  /* =============================
+     VALIDATE PRICE
+  ============================== */
+
+  if (
+    proposedPrice !== undefined &&
+    proposedPrice !== null &&
+    proposedPrice <= 0
+  ) {
     return next(new ApiError("Invalid proposed price", 400));
   }
 
-
   const lesson = await Lesson.findById(lessonId);
-  if (!lesson) return next(new ApiError("Lesson not found", 404));
+
+  if (!lesson) {
+    return next(new ApiError("Lesson not found", 404));
+  }
 
   const io = getIO();
 
-
   /* =============================
      REJECT
+     Permanently hide lesson
   ============================== */
+
   if (response === "reject") {
 
-    lesson.interestedTeachers = lesson.interestedTeachers.filter(
-      (item) => !isSameId(item.teacher, teacherId)
-    );
+    lesson.interestedTeachers =
+      lesson.interestedTeachers.filter(
+        (item) => !isSameId(item.teacher, teacherId)
+      );
 
-    // Add teacher to rejectedByTeachers to hide this lesson from them forever
-    if (!lesson.rejectedByTeachers.includes(teacherId)) {
+    /*
+      Reject is different from cancel negotiation.
+
+      Reject = teacher does not want this lesson,
+      so add him to rejectedByTeachers.
+    */
+
+    if (
+      !lesson.rejectedByTeachers.some(
+        (id) => isSameId(id, teacherId)
+      )
+    ) {
       lesson.rejectedByTeachers.push(teacherId);
     }
 
     await lesson.save();
 
     if (io) {
-      io.to(`subject_${lesson.subject}`).emit("lessonRemoved", {
-        lessonId: lesson._id,
-        teacherId
-      });
+
+      io.to(`subject_${lesson.subject}`).emit(
+        "lessonRemoved",
+        {
+          lessonId: lesson._id,
+          teacherId
+        }
+      );
+
     }
 
     return res.status(200).json({
+      status: "success",
       message: "You rejected this request."
     });
   }
@@ -287,37 +347,89 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
   /* =============================
      VALIDATION
   ============================== */
+
   if (lesson.status !== "pending") {
     return next(
-      new ApiError("Cannot respond to this lesson at its current status", 400)
+      new ApiError(
+        "Cannot respond to this lesson at its current status",
+        400
+      )
     );
   }
 
-  // Allow responding even if requestedDate is in the past (up to 6 hours grace period)
-  const now = new Date();
-  const gracePeriod = 6 * 60 * 60 * 1000; // 6 hours grace for all lessons
-  if (new Date(lesson.requestedDate).getTime() + gracePeriod <= now.getTime()) {
-    return next(new ApiError("Cannot respond to a lesson whose time has passed (more than 6 hours ago)", 400));
-  }
-
-  await checkTeacherAvailability(teacherId, lesson.requestedDate, lesson.durationInMinutes);
-
   /* =============================
-     ADD OR UPDATE INTEREST
+     CHECK LESSON TIME
   ============================== */
 
-  const existing = lesson.interestedTeachers.find(item =>
-    isSameId(item.teacher, teacherId)
+  const now = new Date();
+
+  if (lesson.isUrgent) {
+
+    const gracePeriod = 6 * 60 * 60 * 1000;
+
+    if (
+      new Date(lesson.requestedDate).getTime() +
+        gracePeriod <=
+      now.getTime()
+    ) {
+      return next(
+        new ApiError(
+          "This urgent lesson request has expired.",
+          400
+        )
+      );
+    }
+
+  } else {
+
+    if (
+      new Date(lesson.requestedDate).getTime() < now.getTime()
+    ) {
+      return next(
+        new ApiError(
+          "Cannot respond to a lesson whose scheduled time has passed.",
+          400
+        )
+      );
+    }
+
+  }
+
+  /* =============================
+     CHECK TEACHER AVAILABILITY
+  ============================== */
+
+  await checkTeacherAvailability(
+    teacherId,
+    lesson.requestedDate,
+    lesson.durationInMinutes
   );
 
+  /* =============================
+     ADD / UPDATE INTEREST
+  ============================== */
+
+  const finalPrice =
+    proposedPrice || lesson.price;
+
+  const existing =
+    lesson.interestedTeachers.find(
+      (item) => isSameId(item.teacher, teacherId)
+    );
+
   if (existing) {
-    existing.proposedPrice = proposedPrice || lesson.price;
+
+    existing.proposedPrice = finalPrice;
+
   } else {
+
     lesson.interestedTeachers.push({
       teacher: teacherId,
-      proposedPrice: proposedPrice || lesson.price
+      proposedPrice: finalPrice
     });
+
   }
+
 
   await lesson.save();
 
@@ -327,26 +439,32 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
 
   if (io) {
 
-    // notify student private room
-    io.to(`user_${lesson.student}`).emit("teacherInterested", {
-      lessonId: lesson._id,
-      teacherId,
-      proposedPrice: proposedPrice || lesson.price
-    });
+    io.to(`user_${lesson.student}`).emit(
+      "teacherInterested",
+      {
+        lessonId: lesson._id,
+        teacherId,
+        proposedPrice: finalPrice
+      }
+    );
 
-    // update lesson room
-    io.to(`lesson_${lesson._id}`).emit("interestedTeachersUpdated", {
-      lessonId: lesson._id,
-      teacherId,
-      proposedPrice: proposedPrice || lesson.price
-    });
+    io.to(`lesson_${lesson._id}`).emit(
+      "interestedTeachersUpdated",
+      {
+        lessonId: lesson._id,
+        teacherId,
+        proposedPrice: finalPrice
+      }
+    );
+
   }
 
   /* =============================
-     RESPONSE FIRST
+     RESPONSE
   ============================== */
 
   res.status(200).json({
+    status: "success",
     message: "Response saved successfully.",
     data: lesson
   });
@@ -356,8 +474,13 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
   ============================== */
 
   setImmediate(() => {
-    sendInterestNotification(lesson, req.user , proposedPrice);
+    sendInterestNotification(
+      lesson,
+      req.user,
+      finalPrice
+    );
   });
+
 });
 // =======================================================
 // 6️⃣ STUDENT - UPDATE LESSON PRICE REQUEST
@@ -381,6 +504,15 @@ exports.updateLessonRequest = asyncHandler(async (req, res, next) => {
   if (!isSameId(lesson.student, req.user._id)) {
     return next(
       new ApiError("You are not authorized to modify this lesson", 403)
+    );
+  }
+
+  if (lesson.interestedTeachers.length > 0) {
+    return next(
+      new ApiError(
+        "Cannot update lesson while negotiation is active",
+        400
+      )
     );
   }
 
@@ -423,105 +555,262 @@ exports.updateLessonRequest = asyncHandler(async (req, res, next) => {
 // 7️⃣ STUDENT - CHOOSE TEACHER FOR LESSON
 // =======================================================
 exports.chooseTeacher = asyncHandler(async (req, res, next) => {
-
   const { lessonId, teacherId } = req.params;
 
-  /* ======================================
-     FIND LESSON WITH ATOMIC CONDITIONS
-  ======================================= */
+  const session = await mongoose.startSession();
 
-    const lesson = await Lesson.findOne({
-      _id: lessonId,
-      student: req.user._id,
-      status: "pending"
-    });
+  try {
+    let finalLesson;
 
-    if (!lesson)
-      return next(new ApiError("Lesson not found or already approved", 404));
+    await session.withTransaction(async () => {
 
-    // Allow choosing teacher even if requestedDate is in the past (up to 6 hours grace period)
-    const now = new Date();
-    const gracePeriod = 6 * 60 * 60 * 1000; // 6 hours grace
-    if (new Date(lesson.requestedDate).getTime() + gracePeriod <= now.getTime()) {
-      return next(new ApiError("Cannot choose a teacher for a lesson whose time has passed (more than 6 hours ago)", 400));
-    }
+      /* ======================================
+         FIND LESSON
+      ======================================= */
 
-    const teacherOffer = lesson.interestedTeachers.find(
-      t => t.teacher.toString() === teacherId.toString()
-    );
+      const lesson = await Lesson.findOne({
+        _id: lessonId,
+        student: req.user._id,
+        status: "pending",
+        acceptedTeacher: null,
+      }).session(session);
 
-    if (!teacherOffer)
-      return next(new ApiError("This teacher has not expressed interest in this lesson", 400));
+      if (!lesson) {
+        throw new ApiError(
+          "Lesson not found or already assigned",
+          404
+        );
+      }
 
-    await checkTeacherAvailability(
+      /* ======================================
+         CHECK LESSON TIME
+      ======================================= */
+
+      const now = new Date();
+      const lessonTime = new Date(
+        lesson.requestedDate
+      ).getTime();
+
+      /*
+        URGENT / IMMEDIATE LESSON
+        --------------------------------
+        Can be selected within 6 hours
+        after its requested time.
+      */
+
+      if (lesson.isUrgent) {
+
+        const gracePeriod = 6 * 60 * 60 * 1000;
+
+        if (
+          lessonTime + gracePeriod <= now.getTime()
+        ) {
+          throw new ApiError(
+            "This urgent lesson request has expired.",
+            400
+          );
+        }
+
+      } else {
+
+        /*
+          SCHEDULED LESSON
+          --------------------------------
+          Cannot be selected after its
+          scheduled time.
+        */
+
+        if (lessonTime <= now.getTime()) {
+          throw new ApiError(
+            "Cannot choose a teacher for a lesson whose scheduled time has passed.",
+            400
+          );
+        }
+      }
+
+      /* ======================================
+         CHECK TEACHER INTEREST
+      ======================================= */
+
+      const teacherOffer =
+        lesson.interestedTeachers.find(
+          (item) => isSameId(item.teacher, teacherId)
+        );
+
+      if (!teacherOffer) {
+        throw new ApiError(
+          "This teacher has not expressed interest in this lesson.",
+          400
+        );
+      }
+
+      /* ======================================
+         CHECK TEACHER AVAILABILITY
+      ======================================= */
+
+      await checkTeacherAvailability(
         teacherId,
         lesson.requestedDate,
         lesson.durationInMinutes
+      );
+
+      /* ======================================
+         FIND ACCEPTED NEGOTIATION
+      ======================================= */
+
+      const acceptedThread = await Thread.findOne({
+        lesson: lesson._id,
+        teacher: teacherId,
+        status: "accepted",
+      }).session(session);
+
+      /*
+        Priority:
+        1. Accepted negotiation price
+        2. Teacher proposed price
+        3. Original lesson price
+      */
+
+      const finalPrice =
+        acceptedThread?.agreedPrice ??
+        teacherOffer.proposedPrice ??
+        lesson.price;
+
+      /* ======================================
+         PAYMENT PRICE PROTECTION
+      ====================================== */
+
+      if (
+        lesson.paymentStatus === "paid" &&
+        Number(lesson.price) !== Number(finalPrice)
+      ) {
+        throw new ApiError(
+          "Cannot change price for a paid lesson.",
+          400
+        );
+      }
+
+      /* ======================================
+         ATOMIC LESSON APPROVAL
+      ======================================= */
+
+      const updatedLesson =
+        await Lesson.findOneAndUpdate(
+          {
+            _id: lessonId,
+            student: req.user._id,
+            status: "pending",
+            acceptedTeacher: null,
+          },
+          {
+            $set: {
+              acceptedTeacher: teacherId,
+              status: "approved",
+              price: finalPrice,
+            },
+          },
+          {
+            new: true,
+            session,
+          }
+        );
+
+      /*
+        If another chooseTeacher request
+        succeeded at the same time,
+        this request must fail.
+      */
+
+      if (!updatedLesson) {
+        throw new ApiError(
+          "This lesson has already been assigned to another teacher.",
+          409
+        );
+      }
+
+      finalLesson = updatedLesson;
+
+      /* ======================================
+         CLOSE OTHER NEGOTIATION THREADS
+      ======================================= */
+
+      await Thread.updateMany(
+        {
+          lesson: lessonId,
+          _id: {
+            $ne: acceptedThread?._id || null,
+          },
+          status: {
+            $in: [
+              "negotiating",
+              "canceled",
+              "timeout",
+            ],
+          },
+        },
+        {
+          $set: {
+            status: "closed",
+          },
+        },
+        {
+          session,
+        }
+      );
+
+    });
+
+    /* ======================================
+       RESPONSE
+    ====================================== */
+
+    res.status(200).json({
+      status: "success",
+      message: "Teacher selected successfully.",
+      data: {
+        lesson: finalLesson,
+      },
+    });
+
+    /* ======================================
+       BACKGROUND NOTIFICATION
+    ====================================== */
+
+    setImmediate(() => {
+      sendChooseTeacherNotification(
+        finalLesson._id,
+        teacherId,
+        req.user
+      );
+    });
+
+  } catch (err) {
+
+    /* ======================================
+       API ERROR
+    ====================================== */
+
+    if (err instanceof ApiError) {
+      return next(err);
+    }
+
+    console.error(
+      "chooseTeacher error:",
+      err
     );
 
-    lesson.acceptedTeacher = teacherId;
-    lesson.status = "approved";
-    if ( lesson.paymentStatus === "paid" && lesson.price !== teacherOffer.proposedPrice) {
-      return next(new ApiError("Cannot change price for a paid lesson", 400));
-    }
-    
-    lesson.price = teacherOffer.proposedPrice;
+    return next(
+      new ApiError(
+        "Failed to choose teacher",
+        500
+      )
+    );
 
-    await lesson.save();
+  } finally {
 
-  /* ======================================
-     CHECK IF THERE IS AN ACCEPTED THREAD
-  ======================================= */
-
-  const thread = await Thread.findOne({
-    lesson: lessonId,
-    teacher: teacherId,
-    status: "accepted"
-  });
-
-  if (thread?.agreedPrice) {
-    lesson.price = thread.agreedPrice;
-    await lesson.save();
+    await session.endSession();
 
   }
-
-
-  /* ======================================
-     CLOSE OTHER THREADS IF EXIST
-  ======================================= */
-
-  await Thread.updateMany(
-    {
-      lesson: lessonId,
-      teacher: { $ne: teacherId },
-      status: "negotiating"
-    },
-    { status: "closed" }
-  );
-
-  /* ======================================
-     RESPONSE FIRST
-  ======================================= */
-
-  res.status(200).json({
-    message: "Teacher selected successfully.",
-    data: {
-      lesson,
-    }
-  });
-
-  /* ======================================
-     BACKGROUND NOTIFICATION
-  ======================================= */
-
-  setImmediate(() => {
-    sendChooseTeacherNotification(
-      lesson._id,
-      teacherId,
-      req.user
-    );
-  });
-
 });
 // =======================================================
 //  CREATE ZEGOCALL MEETING FOR LESSON WHEN STUDENT OR TEACHER STARTS THE LESSON

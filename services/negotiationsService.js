@@ -1,5 +1,5 @@
 const asyncHandler = require("express-async-handler");
-
+const mongoose = require("mongoose");
 const Lesson = require("../models/lessonModel");
 const Thread = require("../models/LessonNegotiationThreadModel");
 const Message = require("../models/LessonNegotiationMessageModel");
@@ -10,8 +10,13 @@ const { sendNegotiationNotification } =
 
 const { getIO } = require("../config/socket");
 
+const { checkTeacherAvailability} = require("../utils/helpers");
+
+const isSameId = (a, b) =>
+  a && b && a.toString() === b.toString();
+
 // =======================================================
-//  update lesson price or teacher porposed price helper function
+//  update lesson price or teacher proposed price helper function
 // =======================================================
 
 async function updateLessonPriceOrProposedPrice(lesson, newPrice, userId, isTeacher) {
@@ -46,6 +51,15 @@ exports.getOrCreateThread = asyncHandler(async (req, res, next) => {
   if (!lesson)
     return next(new ApiError("Lesson not found", 404));
 
+  if (lesson.status !== "pending" || lesson.paymentStatus !== "unpaid" ) {
+  return next(
+    new ApiError(
+      "Negotiation is no longer available for this lesson",
+      400
+    )
+  );
+}
+
   let teacherId;
 
   if (req.user.role === "teacher") {
@@ -76,11 +90,22 @@ exports.getOrCreateThread = asyncHandler(async (req, res, next) => {
       student: lesson.student
     },
     {
-      lesson: lessonId,
-      student: lesson.student,
-      teacher: teacherId
+      $set: {
+        lesson: lessonId,
+        student: lesson.student,
+        teacher: teacherId,
+        status: "negotiating",
+        agreedPrice: null,
+        lastOfferMessage: null,
+        lastOfferBy: null,
+        lastOfferAt: null,
+        offerExpiresAt: null
+      }
     },
-    { new: true, upsert: true }
+    {
+      new: true,
+      upsert: true
+    }
   );
 
   res.json({ status: "success", data: thread });
@@ -241,115 +266,411 @@ exports.acceptOffer = asyncHandler(async (req, res, next) => {
   const io = getIO();
   const { threadId, messageId } = req.params;
 
-  /* =========================
-     GET MESSAGE + VALIDATION
-  ========================== */
+  const session = await mongoose.startSession();
 
-  const message = await Message.findOne({
-    _id: messageId,
-    thread: threadId
-  });
+  try {
 
-  if (!message)
-    return next(new ApiError("Invalid message", 400));
+    let acceptedData;
 
-  if (message.type !== "offer")
-    return next(new ApiError("Invalid offer", 400));
+    await session.withTransaction(async () => {
 
-  if (message.sender.equals(req.user._id))
-    return next(new ApiError("You cannot accept your own offer", 400));
+      /* ======================================
+         GET MESSAGE
+      ====================================== */
 
-  /* =========================
-     ATOMIC THREAD UPDATE
-  ========================== */
+      const message = await Message.findOne({
+        _id: messageId,
+        thread: threadId,
+        type: "offer"
+      }).session(session);
 
-  const thread = await Thread.findOneAndUpdate(
-    {
-      _id: threadId,
-      status: "negotiating",
-      lastOfferMessage: messageId,
-      $or: [
-        { student: req.user._id },
-        { teacher: req.user._id }
-      ]
-    },
-    {
-      status: "accepted",
-      agreedPrice: message.price
-    },
-    { new: true }
-  );
+      if (!message) {
+        throw new ApiError(
+          "Invalid or unavailable offer",
+          400
+        );
+      }
 
-  if (!thread)
-    return next(new ApiError("Offer cannot be accepted", 400));
+      /* ======================================
+         CANNOT ACCEPT OWN OFFER
+      ====================================== */
 
-  // =========================
-  // CHECK IF OFFER EXPIRED
-  // =========================
-  if (thread.offerExpiresAt < Date.now()) {
+      if (
+        message.sender &&
+        message.sender.equals(req.user._id)
+      ) {
+        throw new ApiError(
+          "You cannot accept your own offer",
+          400
+        );
+      }
 
-    thread.status="timeout";
+      /* ======================================
+         GET THREAD
+      ====================================== */
 
-    await thread.save();
+      const thread = await Thread.findOne({
+        _id: threadId,
+        status: "negotiating",
+        lesson: { $exists: true },
+        student: { $exists: true },
+        teacher: { $exists: true }
+      }).session(session);
 
-    return next(
-    new ApiError("Offer expired",400)
-    );
+      if (!thread) {
+        throw new ApiError(
+          "Negotiation thread is no longer active",
+          400
+        );
+      }
 
-  }
-  /* =========================
-     UPDATE MESSAGE
-  ========================== */
+      /* ======================================
+         CHECK USER PARTICIPATION
+      ====================================== */
 
-  message.type = "accept";
-  await message.save();
+      const isStudent =
+        isSameId(thread.student, req.user._id);
 
-  /* =========================
-     UPDATE LESSON
-  ========================== */
+      const isTeacher =
+        isSameId(thread.teacher, req.user._id);
 
-  const lesson = await Lesson.findByIdAndUpdate(
-    thread.lesson,
-    {
-      acceptedTeacher: thread.teacher,
-      price: message.price,
-      status: "approved"
-    },
-    { new: true }
-  );
+      if (!isStudent && !isTeacher) {
+        throw new ApiError(
+          "You are not allowed to accept this offer",
+          403
+        );
+      }
 
+      /* ======================================
+         OFFER MUST BE FROM OTHER PARTY
+      ====================================== */
 
-  /* =========================
-     CLOSE OTHER THREADS
-  ========================== */
+      if (
+        message.sender &&
+        message.sender.equals(req.user._id)
+      ) {
+        throw new ApiError(
+          "You cannot accept your own offer",
+          400
+        );
+      }
 
-  await Thread.updateMany(
-    { lesson: lesson._id, _id: { $ne: threadId } },
-    { status: "closed" }
-  );
+      /* ======================================
+         OFFER MUST BE THE LAST OFFER
+      ====================================== */
 
-  /* =========================
-     REALTIME
-  ========================== */
+      if (
+        !thread.lastOfferMessage ||
+        !thread.lastOfferMessage.equals(messageId)
+      ) {
+        throw new ApiError(
+          "This offer is no longer the active offer",
+          400
+        );
+      }
 
-  if (io) {
+      /* ======================================
+         CHECK OFFER EXPIRATION
+      ====================================== */
 
-    io.to(threadId).emit("offerAccepted", {
-      price: message.price,
-      acceptedBy: req.user._id
+      if (
+        !thread.offerExpiresAt ||
+        thread.offerExpiresAt.getTime() <= Date.now()
+      ) {
+
+        await Thread.updateOne(
+          {
+            _id: thread._id,
+            status: "negotiating"
+          },
+          {
+            $set: {
+              status: "timeout"
+            }
+          },
+          {
+            session
+          }
+        );
+
+        throw new ApiError(
+          "Offer expired",
+          400
+        );
+      }
+
+      /* ======================================
+         GET LESSON
+      ====================================== */
+
+      const lesson = await Lesson.findOne({
+        _id: thread.lesson,
+        status: "pending",
+        acceptedTeacher: null
+      }).session(session);
+
+      if (!lesson) {
+        throw new ApiError(
+          "This lesson is no longer available for negotiation",
+          400
+        );
+      }
+
+      /* ======================================
+         CHECK LESSON TIME
+      ====================================== */
+      const now = new Date();
+
+      if (lesson.isUrgent) {
+        const gracePeriod = 6 * 60 * 60 * 1000;
+
+        if (
+          new Date(lesson.requestedDate).getTime() +
+            gracePeriod <=
+          now.getTime()
+        ) {
+          throw new ApiError(
+            "This urgent lesson request has expired.",
+            400
+          );
+        }
+      } else {
+        if (
+          new Date(lesson.requestedDate).getTime() <= now.getTime()
+        ) {
+          throw new ApiError(
+            "Cannot accept an offer for a lesson whose scheduled time has passed.",
+            400
+          );
+        }
+      }
+
+      /* ======================================
+         CHECK TEACHER AVAILABILITY
+      ====================================== */
+
+      await checkTeacherAvailability(
+        thread.teacher,
+        lesson.requestedDate,
+        lesson.durationInMinutes
+      );
+
+      /* ======================================
+         ATOMIC ACCEPTANCE
+      ====================================== */
+
+      const updatedThread =
+        await Thread.findOneAndUpdate(
+          {
+            _id: threadId,
+            status: "negotiating",
+            lastOfferMessage: messageId,
+            offerExpiresAt: {
+              $gt: new Date()
+            },
+            $or: [
+              {
+                student: req.user._id
+              },
+              {
+                teacher: req.user._id
+              }
+            ]
+          },
+          {
+            $set: {
+              status: "accepted",
+              agreedPrice: message.price
+            }
+          },
+          {
+            new: true,
+            session
+          }
+        );
+
+      if (!updatedThread) {
+        throw new ApiError(
+          "Offer can no longer be accepted. It may have expired or already been processed.",
+          409
+        );
+      }
+
+      /* ======================================
+         UPDATE MESSAGE
+      ====================================== */
+
+      await Message.updateOne(
+        {
+          _id: messageId,
+          thread: threadId,
+          type: "offer"
+        },
+        {
+          $set: {
+            type: "accept"
+          }
+        },
+        {
+          session
+        }
+      );
+
+      /* ======================================
+         ATOMIC LESSON APPROVAL
+      ====================================== */
+
+      const updatedLesson =
+        await Lesson.findOneAndUpdate(
+          {
+            _id: thread.lesson,
+            status: "pending",
+            acceptedTeacher: null,
+            student: thread.student
+          },
+          {
+            $set: {
+              acceptedTeacher: thread.teacher,
+              price: message.price,
+              status: "approved"
+            }
+          },
+          {
+            new: true,
+            session
+          }
+        );
+
+      if (!updatedLesson) {
+
+        throw new ApiError(
+          "This lesson has already been assigned to another teacher",
+          409
+        );
+      }
+
+      /* ======================================
+         CLOSE OTHER THREADS
+      ====================================== */
+
+      await Thread.updateMany(
+        {
+          lesson: updatedLesson._id,
+          _id: {
+            $ne: updatedThread._id
+          },
+          status: {
+            $in: [
+              "negotiating",
+              "canceled",
+              "timeout"
+            ]
+          }
+        },
+        {
+          $set: {
+            status: "closed"
+          }
+        },
+        {
+          session
+        }
+      );
+
+      acceptedData = {
+        lesson: updatedLesson,
+        thread: updatedThread,
+        price: message.price,
+        teacher: thread.teacher,
+        student: thread.student
+      };
+
     });
 
+    /* ======================================
+       REALTIME
+    ====================================== */
 
-  }
+    if (io) {
 
-  res.status(200).json({
-    status: "success",
-    data: {
-      price: message.price,
-      teacher: thread.teacher,
+      io.to(threadId.toString()).emit(
+        "offerAccepted",
+        {
+          threadId,
+          messageId,
+          price: acceptedData.price,
+          acceptedBy: req.user._id,
+          teacher: acceptedData.teacher
+        }
+      );
+
+      /*
+        Notify the lesson room that the lesson
+        is now approved.
+      */
+
+      io.to(
+        `lesson_${acceptedData.lesson._id}`
+      ).emit(
+        "lessonApproved",
+        {
+          lessonId: acceptedData.lesson._id,
+          teacherId: acceptedData.teacher,
+          price: acceptedData.price
+        }
+      );
+
+      /*
+        Notify student directly if teacher
+        accepted the student's offer.
+      */
+
+      io.to(
+        `user_${acceptedData.student}`
+      ).emit(
+        "lessonApproved",
+        {
+          lessonId: acceptedData.lesson._id,
+          teacherId: acceptedData.teacher,
+          price: acceptedData.price
+        }
+      );
+
     }
-  });
 
+    /* ======================================
+       RESPONSE
+    ====================================== */
+
+    return res.status(200).json({
+      status: "success",
+      message: "Offer accepted successfully.",
+      data: {
+        price: acceptedData.price,
+        teacher: acceptedData.teacher,
+        lesson: acceptedData.lesson,
+        threadId: acceptedData.thread._id
+      }
+    });
+
+  } catch (err) {
+
+    if (err instanceof ApiError) {
+      return next(err);
+    }
+
+    console.error("acceptOffer error:", err);
+
+    return next(
+      new ApiError(
+        "Failed to accept offer",
+        500
+      )
+    );
+
+  } finally {
+    await session.endSession();
+  }
 });
 
 
@@ -398,35 +719,99 @@ exports.rejectOffer = asyncHandler(async (req, res, next) => {
   res.json({ status: "success", message: "Offer rejected and negotiation closed" });
 });
 
-exports.cancelNegotiation = asyncHandler(async (req,res,next)=>{
+exports.cancelNegotiation = asyncHandler(async (req, res, next) => {
 
   const io = getIO();
 
-  const {threadId} = req.params;
+  const { threadId } = req.params;
 
   const thread = await Thread.findById(threadId);
 
-  if(!thread)
-    return next(new ApiError("Thread not found",404));
-  
-  if (thread.status !== "negotiating")
-    return next(new ApiError("Negotiation already closed", 400));
+  if (!thread) {
+    return next(new ApiError("Thread not found", 404));
+  }
+
+  if (thread.status !== "negotiating") {
+    return next(
+      new ApiError("Negotiation already closed", 400)
+    );
+  }
 
   const isStudent = thread.student.equals(req.user._id);
   const isTeacher = thread.teacher.equals(req.user._id);
 
-  if(!isStudent && !isTeacher)
-  return next(new ApiError("Not allowed",403));
-
-  thread.status = "canceled";
-  await thread.save();
-
-  if(io){
-    io.to(threadId).emit("negotiationCanceled",{
-      threadId,
-      canceledBy:req.user._id
-    });
+  if (!isStudent && !isTeacher) {
+    return next(new ApiError("Not allowed", 403));
   }
 
-  res.status(200).json({status:"success"});
+  /* =========================
+     GET LESSON
+  ========================== */
+
+  const lesson = await Lesson.findById(thread.lesson);
+
+  if (!lesson) {
+    return next(new ApiError("Lesson not found", 404));
+  }
+
+  /* =========================
+     CANCEL THREAD
+  ========================== */
+
+  thread.status = "canceled";
+
+  thread.offerExpiresAt = null;
+  thread.lastOfferMessage = null;
+  thread.lastOfferAt = null;
+  thread.lastOfferBy = null;
+
+  await thread.save();
+
+  /* =========================
+     TEACHER CANCEL
+  ========================== */
+
+  if (isTeacher) {
+
+    lesson.interestedTeachers =
+      lesson.interestedTeachers.filter(
+        item => !item.teacher.equals(req.user._id)
+      );
+
+    await lesson.save();
+  }
+
+  /* =========================
+     SOCKET
+  ========================== */
+
+  if (io) {
+
+    io.to(threadId.toString()).emit(
+      "negotiationCanceled",
+      {
+        threadId,
+        canceledBy: req.user._id
+      }
+    );
+
+    io.to(threadId.toString()).emit(
+      "negotiationStatus",
+      {
+        status: "canceled",
+        threadId
+      }
+    );
+
+  }
+
+  res.status(200).json({
+    status: "success",
+    message: "Negotiation cancelled successfully",
+    data: {
+      threadId,
+      status: thread.status
+    }
+  });
+
 });
