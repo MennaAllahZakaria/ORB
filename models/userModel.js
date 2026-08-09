@@ -151,14 +151,14 @@ const userSchema = new mongoose.Schema(
     teacherProfile: {
       type: teacherProfileSchema,
       required: function () {
-        return this.role === "teacher" && !this.isProfileCompleted ;
+        return this.role === "teacher" && this.isProfileCompleted;
       },
     },
 
     studentProfile: {
       type: studentProfileSchema,
       required: function () {
-        return this.role === "student" &&!this.isProfileCompleted ;
+        return this.role === "student" && this.isProfileCompleted;
       },
     },
 
