@@ -651,7 +651,6 @@ exports.googleLogin = asyncHandler(async (req, res, next) => {
         firstName: given_name || "Google",
         lastName: family_name || "User",
         imageProfile: picture || "",
-        role: "student",
         isVerified: true,
         isProfileCompleted: false,
       });
