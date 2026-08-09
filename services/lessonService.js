@@ -485,29 +485,94 @@ exports.respondToLessonRequest = asyncHandler(async (req, res, next) => {
 // =======================================================
 // 6️⃣ STUDENT - UPDATE LESSON PRICE REQUEST
 // =======================================================
+
 exports.updateLessonRequest = asyncHandler(async (req, res, next) => {
   const { lessonId } = req.params;
-  const { newPrice,newTitle,newDescription,newDate } = req.body;
 
-  if (!newPrice || newPrice <= 0) {
+  const {
+    newPrice,
+    newTitle,
+    newDate
+  } = req.body;
+
+  /* =====================================
+     VALIDATE PRICE
+  ===================================== */
+
+  if (
+    newPrice === undefined ||
+    newPrice === null ||
+    Number(newPrice) <= 0
+  ) {
     return next(
-      new ApiError("newPrice must be a positive number", 400)
+      new ApiError(
+        "newPrice must be a positive number",
+        400
+      )
     );
   }
 
+  /* =====================================
+     GET LESSON
+  ===================================== */
+
   const lesson = await Lesson.findById(lessonId).select(
-    "student status acceptedTeacher price"
+    [
+      "student",
+      "status",
+      "acceptedTeacher",
+      "price",
+      "paymentStatus",
+      "interestedTeachers",
+      "title",
+      "requestedDate",
+      "isUrgent"
+    ].join(" ")
   );
 
-  if (!lesson) return next(new ApiError("Lesson not found", 404));
+  if (!lesson) {
+    return next(
+      new ApiError("Lesson not found", 404)
+    );
+  }
+
+  /* =====================================
+     AUTHORIZATION
+  ===================================== */
 
   if (!isSameId(lesson.student, req.user._id)) {
     return next(
-      new ApiError("You are not authorized to modify this lesson", 403)
+      new ApiError(
+        "You are not authorized to modify this lesson",
+        403
+      )
     );
   }
 
-  if (lesson.interestedTeachers.length > 0) {
+  /* =====================================
+     LESSON STATUS
+  ===================================== */
+
+  if (
+    lesson.status !== "pending" ||
+    lesson.acceptedTeacher
+  ) {
+    return next(
+      new ApiError(
+        "Cannot update this lesson at its current status",
+        400
+      )
+    );
+  }
+
+  /* =====================================
+     PREVENT UPDATE DURING NEGOTIATION
+  ===================================== */
+
+  if (
+    Array.isArray(lesson.interestedTeachers) &&
+    lesson.interestedTeachers.length > 0
+  ) {
     return next(
       new ApiError(
         "Cannot update lesson while negotiation is active",
@@ -516,41 +581,121 @@ exports.updateLessonRequest = asyncHandler(async (req, res, next) => {
     );
   }
 
-  if (lesson.status !== "pending" || lesson.acceptedTeacher) {
+  /* =====================================
+     PREVENT UPDATE AFTER PAYMENT
+  ===================================== */
+
+  if (lesson.paymentStatus === "paid") {
     return next(
       new ApiError(
-        "Cannot update price for this lesson at its current status",
+        "Cannot update a paid lesson",
         400
       )
     );
   }
 
-  // if lesson already paid, prevent price change to avoid complications with refunds and disputes
-  if (newPrice && lesson.paymentStatus === "paid") {
-    return next(new ApiError("Cannot update price for a paid lesson", 400));
+  if (lesson.paymentStatus === "released") {
+    return next(
+      new ApiError(
+        "Cannot update a lesson after payment has been released",
+        400
+      )
+    );
   }
 
-  lesson.price = newPrice;
-  lesson.title = newTitle || lesson.title;
-  lesson.description = newDescription || lesson.description;
-  lesson.requestedDate = newDate ? new Date(newDate) : lesson.requestedDate;
+  /* =====================================
+     VALIDATE DATE
+  ===================================== */
+
+  if (newDate !== undefined && newDate !== null) {
+
+    const parsedDate = new Date(newDate);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return next(
+        new ApiError(
+          "Invalid lesson date",
+          400
+        )
+      );
+    }
+
+    /*
+      Lesson date must be in the future.
+      This applies to normal scheduled lessons.
+    */
+
+    if (
+      !lesson.isUrgent &&
+      parsedDate.getTime() <= Date.now()
+    ) {
+      return next(
+        new ApiError(
+          "Scheduled lesson date must be in the future",
+          400
+        )
+      );
+    }
+
+    lesson.requestedDate = parsedDate;
+  }
+
+  /* =====================================
+     UPDATE PRICE
+  ===================================== */
+
+  lesson.price = Number(newPrice);
+
+  /* =====================================
+     UPDATE TITLE
+  ===================================== */
+
+  if (
+    newTitle !== undefined &&
+    newTitle !== null &&
+    String(newTitle).trim() !== ""
+  ) {
+    lesson.title = String(newTitle).trim();
+  }
+
+
+  /* =====================================
+     SAVE
+  ===================================== */
+
   await lesson.save();
 
+  /* =====================================
+     REALTIME
+  ===================================== */
+
   const io = getIO();
+
   if (io) {
-    io.to(`lesson_${lesson._id}`).emit("lessonPriceUpdated", {
-      lessonId: lesson._id,
-      newPrice
-    });
+
+    io.to(`lesson_${lesson._id}`).emit(
+      "lessonUpdated",
+      {
+        lessonId: lesson._id,
+        newPrice: lesson.price,
+        newTitle: lesson.title,
+        requestedDate: lesson.requestedDate
+      }
+    );
+
   }
 
+  /* =====================================
+     RESPONSE
+  ===================================== */
 
-  res.status(200).json({
-    message: "Lesson price updated successfully.",
-    data: lesson,
+  return res.status(200).json({
+    status: "success",
+    message: "Lesson updated successfully.",
+    data: lesson
   });
 });
-
+  
 // =======================================================
 // 7️⃣ STUDENT - CHOOSE TEACHER FOR LESSON
 // =======================================================
