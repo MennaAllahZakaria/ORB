@@ -37,7 +37,6 @@ exports.signup = asyncHandler(async (req, res, next) => {
   if (!email || !password) {
     return next(new ApiError("Email and password are required", 400));
   }
-  email = email.toLowerCase();
 
   // Block direct admin signup
   if (role === "admin") {
