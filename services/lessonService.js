@@ -1213,60 +1213,211 @@ exports.getLessonDetailsById = asyncHandler(async (req, res, next) => {
 // GET UPCOMING LESSONS FOR TEACHER/STUDENT
 // =======================================================
 exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
-
   const user = req.user;
   const role = user.role;
 
-  const page = Math.max(1, +req.query.page || 1);
-  const limit = Math.min(50, +req.query.limit || 10);
+  /* ===============================
+     PAGINATION
+  =============================== */
+
+  const page = Math.max(
+    1,
+    Number(req.query.page) || 1
+  );
+
+  const limit = Math.min(
+    50,
+    Number(req.query.limit) || 10
+  );
+
   const skip = (page - 1) * limit;
 
-  const { subject, paymentStatus, from, to, sort } = req.query;
+  const {
+    subject,
+    paymentStatus,
+    from,
+    to,
+    sort
+  } = req.query;
+
+  /* ===============================
+     VALIDATE DATES
+  =============================== */
+
+  if (from && Number.isNaN(new Date(from).getTime())) {
+    return next(
+      new ApiError("Invalid from date", 400)
+    );
+  }
+
+  if (to && Number.isNaN(new Date(to).getTime())) {
+    return next(
+      new ApiError("Invalid to date", 400)
+    );
+  }
 
   /* ===============================
      BASE MATCH
   =============================== */
 
-  let match = {};
+  const match = {};
+
+  /* ===============================
+     STUDENT
+  =============================== */
 
   if (role === "student") {
-
     match.student = user._id;
 
     match.$or = [
-      { status: "pending" },
-      { status: "approved", paymentStatus: "unpaid" },
-      { status: "approved", paymentStatus: "paid" },
-      { status: "canceled", canceledBy: "teacher" }
+      /* Waiting for teacher */
+      {
+        status: "pending"
+      },
+
+      /* Teacher selected, waiting for payment
+         OR payment currently being processed
+         OR already paid
+      */
+      {
+        status: "approved",
+        paymentStatus: {
+          $in: [
+            "unpaid",
+            "pending",
+            "paid"
+          ]
+        }
+      },
+
+      /* Teacher cancelled */
+      {
+        status: "canceled",
+        canceledBy: "teacher"
+      }
     ];
+  }
 
-  } else if (role === "teacher") {
+  /* ===============================
+     TEACHER
+  =============================== */
 
+  else if (role === "teacher") {
     match.$or = [
+
+      /* =========================
+         LESSON REQUEST
+         Teacher has shown interest
+      ========================= */
+
       {
         status: "pending",
         "interestedTeachers.teacher": user._id,
         acceptedTeacher: null
       },
+
+      /* =========================
+         TEACHER WAS SELECTED
+         Payment can be unpaid,
+         pending or paid
+      ========================= */
+
       {
         status: "approved",
         acceptedTeacher: user._id,
-        //paymentStatus: "paid" 
+        paymentStatus: {
+          $in: [
+            "unpaid",
+            "pending",
+            "paid"
+          ]
+        }
       }
     ];
-
-  } else {
-    return next(new ApiError("Not authorized", 403));
   }
 
-  if (subject) match.subject = subject;
-  if (paymentStatus) match.paymentStatus = paymentStatus;
+  /* ===============================
+     OTHER ROLES
+  =============================== */
+
+  else {
+    return next(
+      new ApiError(
+        "Not authorized",
+        403
+      )
+    );
+  }
+
+  /* ===============================
+     OPTIONAL SUBJECT FILTER
+  =============================== */
+
+  if (subject) {
+    match.subject = subject;
+  }
+
+  /* ===============================
+     OPTIONAL PAYMENT FILTER
+  =============================== */
+
+  if (paymentStatus) {
+    match.paymentStatus = paymentStatus;
+  }
+
+  /* ===============================
+     OPTIONAL DATE FILTER
+  =============================== */
 
   if (from || to) {
     match.requestedDate = {};
-    if (from) match.requestedDate.$gte = new Date(from);
-    if (to) match.requestedDate.$lte = new Date(to);
+
+    if (from) {
+      match.requestedDate.$gte =
+        new Date(from);
+    }
+
+    if (to) {
+      match.requestedDate.$lte =
+        new Date(to);
+    }
   }
+
+  /* ===============================
+     EXPIRATION CONDITION
+     
+     Lesson expires:
+     requestedDate
+     +
+     duration
+     +
+     15 minutes
+  =============================== */
+
+  match.$expr = {
+    $gt: [
+      {
+        $add: [
+          "$requestedDate",
+          {
+            $multiply: [
+              "$durationInMinutes",
+              60 * 1000
+            ]
+          },
+          15 * 60 * 1000
+        ]
+      },
+      new Date()
+    ]
+  };
+
+  /* ===============================
+     SORT
+  =============================== */
+
+  const sortDirection =
+    sort === "desc" ? -1 : 1;
 
   /* ===============================
      PIPELINE
@@ -1274,7 +1425,13 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
 
   const pipeline = [
 
-    { $match: match },
+    /* ===============================
+       BASE MATCH
+    =============================== */
+
+    {
+      $match: match
+    },
 
     /* ===============================
        TIME CALCULATIONS
@@ -1285,32 +1442,64 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
         lessonEndTime: {
           $add: [
             "$requestedDate",
-            { $multiply: ["$durationInMinutes", 60000] }
+            {
+              $multiply: [
+                "$durationInMinutes",
+                60 * 1000
+              ]
+            }
           ]
         }
       }
     },
 
+    /* ===============================
+       BASE END TIME
+
+       If meetingEndTime exists,
+       use it.
+
+       Otherwise use calculated
+       lesson end time.
+    =============================== */
+
     {
       $addFields: {
         baseEndTime: {
-          $ifNull: ["$meetingEndTime", "$lessonEndTime"]
+          $ifNull: [
+            "$meetingEndTime",
+            "$lessonEndTime"
+          ]
         }
       }
     },
+
+    /* ===============================
+       EXPIRATION TIME
+    =============================== */
 
     {
       $addFields: {
         expireAt: {
-          $add: ["$baseEndTime", 15 * 60 * 1000] //  15 min
+          $add: [
+            "$baseEndTime",
+            15 * 60 * 1000
+          ]
         }
       }
     },
 
+    /* ===============================
+       FINAL EXPIRATION CHECK
+    =============================== */
+
     {
       $match: {
         $expr: {
-          $gt: ["$expireAt", new Date()]
+          $gt: [
+            "$expireAt",
+            new Date()
+          ]
         }
       }
     },
@@ -1325,74 +1514,232 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
           $switch: {
             branches: [
 
-              /* ===== STUDENT ===== */
+              /* =================================
+                 STUDENT
+              ================================= */
 
+              /* Waiting for teacher */
               {
                 case: {
                   $and: [
-                    { $eq: [role, "student"] },
-                    { $eq: ["$status", "pending"] }
+                    {
+                      $eq: [
+                        role,
+                        "student"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$status",
+                        "pending"
+                      ]
+                    }
                   ]
                 },
+
                 then: "waiting_teacher"
               },
 
+              /* Teacher selected,
+                 payment not started */
               {
                 case: {
                   $and: [
-                    { $eq: [role, "student"] },
-                    { $eq: ["$status", "approved"] },
-                    { $eq: ["$paymentStatus", "unpaid"] }
+                    {
+                      $eq: [
+                        role,
+                        "student"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$status",
+                        "approved"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$paymentStatus",
+                        "unpaid"
+                      ]
+                    }
                   ]
                 },
+
                 then: "awaiting_payment"
               },
 
+              /* Payment currently processing */
               {
                 case: {
                   $and: [
-                    { $eq: [role, "student"] },
-                    { $eq: ["$status", "approved"] },
-                    { $eq: ["$paymentStatus", "paid"] }
+                    {
+                      $eq: [
+                        role,
+                        "student"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$status",
+                        "approved"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$paymentStatus",
+                        "pending"
+                      ]
+                    }
                   ]
                 },
+
+                then: "payment_pending"
+              },
+
+              /* Payment completed */
+              {
+                case: {
+                  $and: [
+                    {
+                      $eq: [
+                        role,
+                        "student"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$status",
+                        "approved"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$paymentStatus",
+                        "paid"
+                      ]
+                    }
+                  ]
+                },
+
                 then: "confirmed"
               },
 
+              /* Teacher cancelled */
               {
                 case: {
                   $and: [
-                    { $eq: [role, "student"] },
-                    { $eq: ["$status", "canceled"] },
-                    { $eq: ["$canceledBy", "teacher"] }
+                    {
+                      $eq: [
+                        role,
+                        "student"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$status",
+                        "canceled"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$canceledBy",
+                        "teacher"
+                      ]
+                    }
                   ]
                 },
+
                 then: "cancelled_by_teacher"
               },
 
-              /* ===== TEACHER ===== */
+              /* =================================
+                 TEACHER
+              ================================= */
 
+              /* Teacher showed interest */
               {
                 case: {
                   $and: [
-                    { $eq: [role, "teacher"] },
-                    { $eq: ["$status", "pending"] }
+                    {
+                      $eq: [
+                        role,
+                        "teacher"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$status",
+                        "pending"
+                      ]
+                    }
                   ]
                 },
+
                 then: "price_received"
               },
 
+              /* Teacher selected,
+                 student has not completed payment */
               {
                 case: {
                   $and: [
-                    { $eq: [role, "teacher"] },
-                    { $eq: ["$status", "approved"] }
+                    {
+                      $eq: [
+                        role,
+                        "teacher"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$status",
+                        "approved"
+                      ]
+                    },
+                    {
+                      $in: [
+                        "$paymentStatus",
+                        [
+                          "unpaid",
+                          "pending"
+                        ]
+                      ]
+                    }
                   ]
                 },
+
+                then: "waiting_for_student_payment"
+              },
+
+              /* Student paid */
+              {
+                case: {
+                  $and: [
+                    {
+                      $eq: [
+                        role,
+                        "teacher"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$status",
+                        "approved"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$paymentStatus",
+                        "paid"
+                      ]
+                    }
+                  ]
+                },
+
                 then: "booked"
               }
-
             ],
+
             default: "unknown"
           }
         }
@@ -1411,7 +1758,10 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
         as: "student"
       }
     },
-    { $unwind: "$student" },
+
+    {
+      $unwind: "$student"
+    },
 
     /* ===============================
        POPULATE TEACHER
@@ -1425,6 +1775,7 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
         as: "acceptedTeacher"
       }
     },
+
     {
       $unwind: {
         path: "$acceptedTeacher",
@@ -1438,47 +1789,80 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
 
     {
       $project: {
+
+        _id: 1,
         title: 1,
         subject: 1,
         price: 1,
+        durationInMinutes: 1,
+        requestedDate: 1,
+        lessonEndTime: 1,
+        expireAt: 1,
+        paymentStatus: 1,
+        status: 1,
+        canceledBy: 1,
+        lessonState: 1,
+
+        /* =========================
+           PROPOSED PRICE
+        ========================= */
 
         proposedPrice: {
           $let: {
+
             vars: {
+
               teacherIndex: {
                 $indexOfArray: [
                   "$interestedTeachers.teacher",
-                  role === "teacher" ? user._id : "$acceptedTeacher._id"
+
+                  role === "teacher"
+                    ? user._id
+                    : "$acceptedTeacher._id"
                 ]
               }
+
             },
+
             in: {
+
               $cond: [
-                { $gte: ["$$teacherIndex", 0] },
+
+                {
+                  $gte: [
+                    "$$teacherIndex",
+                    0
+                  ]
+                },
+
                 {
                   $arrayElemAt: [
                     "$interestedTeachers.proposedPrice",
                     "$$teacherIndex"
                   ]
                 },
+
                 "$price"
               ]
             }
           }
         },
 
-        durationInMinutes: 1,
-        requestedDate: 1,
-        lessonEndTime: 1,
-        expireAt: 1,
-        paymentStatus: 1,
-        lessonState: 1,
+        /* =========================
+           STUDENT
+        ========================= */
 
+        "student._id": 1,
         "student.firstName": 1,
         "student.lastName": 1,
         "student.email": 1,
         "student.imageProfile": 1,
 
+        /* =========================
+           TEACHER
+        ========================= */
+
+        "acceptedTeacher._id": 1,
         "acceptedTeacher.firstName": 1,
         "acceptedTeacher.lastName": 1,
         "acceptedTeacher.email": 1,
@@ -1487,29 +1871,67 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
       }
     },
 
-    { $sort: { requestedDate: sort === "desc" ? -1 : 1 } },
+    /* ===============================
+       SORT
+    =============================== */
 
-    { $skip: skip },
+    {
+      $sort: {
+        requestedDate: sortDirection
+      }
+    },
 
-    { $limit: limit }
+    /* ===============================
+       PAGINATION
+    =============================== */
 
+    {
+      $skip: skip
+    },
+
+    {
+      $limit: limit
+    }
   ];
 
-  const lessons = await Lesson.aggregate(pipeline);
-  const total = await Lesson.countDocuments(match);
+  /* ===============================
+     EXECUTE
+  =============================== */
 
-  res.status(200).json({
+  const lessons =
+    await Lesson.aggregate(pipeline);
+
+  /* ===============================
+     TOTAL
+     
+     IMPORTANT:
+     match already contains the
+     expiration condition, so the
+     count matches the returned data.
+  =============================== */
+
+  const total =
+    await Lesson.countDocuments(match);
+
+  /* ===============================
+     RESPONSE
+  =============================== */
+
+  return res.status(200).json({
     status: "success",
     page,
     limit,
     total,
-    totalPages: Math.ceil(total / limit),
-    hasNextPage: page * limit < total,
-    hasPrevPage: page > 1,
-    results: lessons.length,
+    totalPages:
+      Math.ceil(total / limit),
+    hasNextPage:
+      page * limit < total,
+    hasPrevPage:
+      page > 1,
+    results:
+      lessons.length,
     data: lessons
   });
-
 });
 
 
