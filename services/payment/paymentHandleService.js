@@ -143,66 +143,275 @@ exports.handlePaymentSuccess = async ({
   }
 };
 
+exports.handleLessonCompletion = async (lessonId, options = {}) => {
+  const {
+    skipTeacherConfirmation = false,
+  } = options;
 
-exports.handleLessonCompletion = async (lessonId) => {
-  const lesson = await Lesson.findById(lessonId);
+  const session = await mongoose.startSession();
 
-  if (!lesson) throw new Error("Lesson not found");
+  try {
+    await session.withTransaction(async () => {
 
-  if (lesson.paymentStatus !== "paid") throw new Error("Not paid");
+      /* =====================================================
+         1. GET LESSON
+      ===================================================== */
 
-  if (lesson.paymentStatus === "refund_pending")
-  throw new Error("Refund is pending");
+      const lesson = await Lesson.findById(lessonId)
+        .session(session);
 
-  if (lesson.paymentStatus === "refunded")
-    throw new Error("Lesson already refunded");
+      if (!lesson) {
+        throw new Error("Lesson not found");
+      }
 
-  if (lesson.fundsStatus === "released") return lesson;
 
-  // anti-fraud: minimum duration
-  if (lesson.durationInMinutes < 10) {
-    return { decision: "hold_short_session" };
-  }
+      /* =====================================================
+         2. PAYMENT VALIDATION
+      ===================================================== */
 
-  const { sessionVerified, studentConfirmed, teacherConfirmed } = lesson;
+      if (lesson.paymentStatus === "refund_pending") {
+        throw new Error("Refund is pending");
+      }
 
-  if (!sessionVerified) return { decision: "hold" };
+      if (lesson.paymentStatus === "refunded") {
+        throw new Error("Lesson already refunded");
+      }
 
-  if (studentConfirmed === false) {
-    const dispute = await Dispute.create({
-      lessonId: lesson._id,
-      studentId: lesson.student,
-      teacherId: lesson.acceptedTeacher,
-      reason: "quality",
-      systemData: {
-        sessionVerified,
-        duration: lesson.durationInMinutes,
-      },
+      /*
+        If payment has already been released,
+        nothing else should happen.
+      */
+
+      if (lesson.fundsStatus === "released") {
+        return;
+      }
+
+      if (lesson.paymentStatus !== "paid") {
+        throw new Error("Lesson payment is not completed");
+      }
+
+
+      /* =====================================================
+         3. LESSON MUST BE COMPLETED
+      ===================================================== */
+
+      if (
+        lesson.finalCompletionStatus !== "completed"
+      ) {
+        return;
+      }
+
+
+      /* =====================================================
+         4. DO NOT RELEASE DISPUTED LESSONS
+      ===================================================== */
+
+      if (
+        lesson.disputeFlag === true ||
+        [
+          "disputed",
+          "under_admin_review",
+        ].includes(lesson.reviewStatus)
+      ) {
+        return;
+      }
+
+
+      /* =====================================================
+         5. SESSION VERIFICATION
+      ===================================================== */
+
+      if (!lesson.sessionVerified) {
+        return;
+      }
+
+
+      /* =====================================================
+         6. MINIMUM SESSION DURATION
+      ===================================================== */
+
+      if (
+        !lesson.durationInMinutes ||
+        lesson.durationInMinutes < 10
+      ) {
+        return;
+      }
+
+
+      /* =====================================================
+         7. GET COMPLETION SUBMISSIONS
+      ===================================================== */
+
+      const submissions =
+        await CompleteLesson.find({
+          lesson: lesson._id,
+        })
+          .session(session)
+          .sort({ createdAt: 1 });
+
+
+      const studentSubmission =
+        submissions.find(
+          (submission) =>
+            submission.role === "student"
+        );
+
+      const teacherSubmission =
+        submissions.find(
+          (submission) =>
+            submission.role === "teacher"
+        );
+
+
+      /* =====================================================
+         8. STUDENT CONFIRMATION
+      ===================================================== */
+
+      const studentConfirmed =
+        studentSubmission?.completionStatus ===
+        "completed";
+
+
+      /* =====================================================
+         9. TEACHER CONFIRMATION
+      ===================================================== */
+
+      const teacherConfirmed =
+        teacherSubmission?.completionStatus ===
+        "completed";
+
+
+      /* =====================================================
+         10. REQUIRED CONFIRMATIONS
+      ===================================================== */
+
+      if (!studentConfirmed) {
+        return;
+      }
+
+      /*
+        Normally both parties must confirm.
+
+        skipTeacherConfirmation is only used when
+        admin has explicitly resolved the lesson
+        as completed.
+      */
+
+      if (
+        !teacherConfirmed &&
+        !skipTeacherConfirmation
+      ) {
+        return;
+      }
+
+
+      /* =====================================================
+         11. UPDATE LEDGER
+      ===================================================== */
+
+      await Ledger.updateMany(
+        {
+          lessonId: lesson._id,
+          paymentId: lesson.paymentId,
+          status: "pending",
+          source: "lesson",
+        },
+        {
+          $set: {
+            status: "confirmed",
+          },
+        },
+        {
+          session,
+        }
+      );
+
+
+      /* =====================================================
+         12. ATOMIC PAYMENT RELEASE PROTECTION
+      ===================================================== */
+
+      const updatedLesson =
+        await Lesson.findOneAndUpdate(
+          {
+            _id: lesson._id,
+
+            paymentStatus: "paid",
+
+            fundsStatus: "holding",
+
+            finalCompletionStatus:
+              "completed",
+
+            disputeFlag: false,
+
+            reviewStatus: {
+              $nin: [
+                "disputed",
+                "under_admin_review",
+              ],
+            },
+          },
+          {
+            $set: {
+              fundsStatus: "released",
+
+              paymentStatus: "released",
+
+              status: "completed",
+
+              reviewStatus:
+                "auto_resolved",
+            },
+          },
+          {
+            new: true,
+            session,
+          }
+        );
+
+
+      /*
+        Another request / cron may have released
+        the funds at the same time.
+      */
+
+      if (!updatedLesson) {
+        return;
+      }
+
+
+      /* =====================================================
+         13. RETURN
+      ===================================================== */
+
+      return;
     });
 
-    lesson.status = "disputed";
-    lesson.disputeId = dispute._id;
-    await lesson.save();
 
-    return { decision: "dispute" };
+    /* =====================================================
+       14. GET FINAL LESSON
+    ===================================================== */
+
+    const finalLesson =
+      await Lesson.findById(lessonId);
+
+    if (!finalLesson) {
+      throw new Error("Lesson not found");
+    }
+
+    return {
+      decision:
+        finalLesson.fundsStatus === "released"
+          ? "released"
+          : "hold",
+
+      lesson: finalLesson,
+    };
+
+  } finally {
+    await session.endSession();
   }
-
-  if (studentConfirmed && teacherConfirmed) {
-    await Ledger.updateMany(
-      { lessonId: lesson._id, status: "pending", source: "lesson" },
-      { status: "confirmed" }
-    );
-
-    lesson.fundsStatus = "released";
-    lesson.status = "approved";
-    lesson.releasedAt = new Date();
-
-    await lesson.save();
-
-    return { decision: "released" };
-  }
-
-  return { decision: "hold" };
 };
 
 
@@ -354,184 +563,353 @@ exports.handleRefund = async ({
   lessonId,
   reason = "Lesson cancelled",
   requestedBy,
+  canceledBy = null,
+  session = null,
 }) => {
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  let ownSession = false;
+
+  /*
+    If no session was provided,
+    this function creates its own transaction.
+
+    If a session was provided,
+    it uses the caller's transaction.
+  */
+
+  if (!session) {
+    session = await mongoose.startSession();
+    await session.startTransaction();
+    ownSession = true;
+  }
 
   try {
 
-    /* ===============================
-       GET LESSON
-    =============================== */
+    /* =====================================================
+       1. GET LESSON
+    ===================================================== */
 
-    const lesson = await Lesson.findById(lessonId).session(session);
+    const lesson =
+      await Lesson.findById(lessonId)
+        .session(session);
 
-    if (!lesson)
-      throw new Error("Lesson not found");
+    if (!lesson) {
+      throw new Error(
+        "Lesson not found"
+      );
+    }
 
-    /* ===============================
-       GET PAYMENT
-    =============================== */
 
-    const payment = await Payment.findOne({
-      lessonId: lesson._id,
-    }).session(session);
+    /* =====================================================
+       2. GET PAYMENT
+    ===================================================== */
 
-    if (!payment)
-      throw new Error("Payment not found");
+    const payment =
+      await Payment.findOne({
+        lessonId: lesson._id,
+      }).session(session);
 
-    /* ===============================
-       VALIDATIONS
-    =============================== */
+    if (!payment) {
+      throw new Error(
+        "Payment not found"
+      );
+    }
 
-    if (payment.status !== "paid") {
-      throw new Error("Payment is not eligible for refund");
+
+    /* =====================================================
+       3. PAYMENT VALIDATION
+    ===================================================== */
+
+    if (
+      payment.status ===
+      "refund_pending"
+    ) {
+      throw new Error(
+        "Refund is already pending"
+      );
     }
 
     if (
+      payment.status ===
+      "refunded"
+    ) {
+      throw new Error(
+        "Payment has already been refunded"
+      );
+    }
+
+    if (
+      payment.status !==
+      "paid"
+    ) {
+      throw new Error(
+        "Payment is not eligible for refund"
+      );
+    }
+
+
+    /* =====================================================
+       4. REFUND VALIDATION
+    ===================================================== */
+
+    if (
       payment.refund &&
+      payment.refund.status &&
       payment.refund.status !== "none"
     ) {
-      throw new Error("Refund already requested");
+      throw new Error(
+        "Refund already requested or processed"
+      );
     }
 
-    if (lesson.fundsStatus === "released") {
-      throw new Error("Funds already released to teacher");
+
+    /* =====================================================
+       5. FUNDS VALIDATION
+    ===================================================== */
+
+    if (
+      lesson.fundsStatus ===
+      "released"
+    ) {
+      throw new Error(
+        "Funds have already been released to teacher"
+      );
     }
 
-    /* ===============================
-       CANCEL PENDING TEACHER LEDGER
-    =============================== */
+    if (
+      lesson.fundsStatus ===
+      "refunded"
+    ) {
+      throw new Error(
+        "Lesson has already been refunded"
+      );
+    }
+
+
+    if (
+      lesson.fundsStatus !==
+      "holding"
+    ) {
+      throw new Error(
+        `Lesson funds are not eligible for refund. Current status: ${lesson.fundsStatus}`
+      );
+    }
+
+
+    /* =====================================================
+       6. DETERMINE CANCELLATION SOURCE
+    ===================================================== */
+
+    let cancellationSource =
+      canceledBy;
+
+    if (!cancellationSource && requestedBy) {
+
+      if (
+        lesson.student &&
+        requestedBy.toString() ===
+          lesson.student.toString()
+      ) {
+        cancellationSource =
+          "student";
+
+      } else if (
+        lesson.acceptedTeacher &&
+        requestedBy.toString() ===
+          lesson.acceptedTeacher.toString()
+      ) {
+        cancellationSource =
+          "teacher";
+      }
+    }
+
+
+    if (
+      cancellationSource &&
+      !["student", "teacher"].includes(
+        cancellationSource
+      )
+    ) {
+      throw new Error(
+        "Invalid cancellation source"
+      );
+    }
+
+
+    /* =====================================================
+       7. CANCEL PENDING LEDGER
+    ===================================================== */
 
     await Ledger.updateMany(
       {
-        paymentId: payment._id,
-        status: "pending",
+        paymentId:
+          payment._id,
+
+        status:
+          "pending",
       },
       {
-        status: "cancelled",
+        $set: {
+          status:
+            "cancelled",
+        },
       },
-      { session }
+      {
+        session,
+      }
     );
 
-    /* ===============================
-       UPDATE PAYMENT
-    =============================== */
 
-    payment.status = "refund_pending";
+    /* =====================================================
+       8. ATOMIC PAYMENT UPDATE
+    ===================================================== */
 
-    payment.refund = {
-      status: "pending",
-      requestedAt: new Date(),
-      amount: payment.amount,
-      note: reason,
-      processedBy: requestedBy,
-    };
+    const updatedPayment =
+      await Payment.findOneAndUpdate(
+        {
+          _id:
+            payment._id,
 
-    await payment.save({ session });
+          status:
+            "paid",
 
-    /* ===============================
-       UPDATE LESSON
-    =============================== */
+          $or: [
+            {
+              "refund.status": {
+                $exists: false,
+              },
+            },
+            {
+              "refund.status":
+                "none",
+            },
+          ],
+        },
+        {
+          $set: {
 
-    lesson.paymentStatus = "refund_pending";
-    lesson.fundsStatus = "refund_pending";
-    lesson.status = "canceled";
-    lesson.canceledBy =
-      requestedBy.toString() === lesson.student.toString()
-        ? "student"
-        : "teacher";
+            status:
+              "refund_pending",
 
-    await lesson.save({ session });
+            refund: {
 
-    /* ===============================
-       COMMIT
-    =============================== */
+              status:
+                "pending",
 
-    await session.commitTransaction();
+              requestedAt:
+                new Date(),
 
-    /* ===============================
-       NOTIFICATIONS
-    =============================== */
+              amount:
+                payment.amount,
 
-    const student = await User.findById(lesson.student);
+              note:
+                reason,
 
-    if (student) {
-
-      setImmediate(() => {
-        sendNotification({
-          recipient: student,
-
-          titleEn: "Refund Requested",
-          titleAr: "تم استلام طلب الاسترداد",
-
-          bodyEn:
-            "Your refund request has been received and will be reviewed by the administration.",
-
-          bodyAr:
-            "تم استلام طلب استرداد المبلغ وسيتم مراجعته من قبل الإدارة.",
-
-          data: {
-            type: "refund_requested",
-            lessonId: lesson._id.toString(),
+              processedBy:
+                requestedBy || null,
+            },
           },
-        });
-      });
-
-    }
-
-    if (lesson.acceptedTeacher) {
-
-      const teacher = await User.findById(
-        lesson.acceptedTeacher
+        },
+        {
+          new: true,
+          session,
+        }
       );
 
-      if (teacher) {
 
-        setImmediate(() => {
-          sendNotification({
-            recipient: teacher,
-
-            titleEn: "Lesson Cancelled",
-            titleAr: "تم إلغاء الحصة",
-
-            bodyEn:
-              "The lesson has been cancelled and the payment is pending refund.",
-
-            bodyAr:
-              "تم إلغاء الحصة، وجارٍ استرداد المبلغ للطالب.",
-
-            data: {
-              type: "lesson_cancelled",
-              lessonId: lesson._id.toString(),
-            },
-          });
-        });
-
-      }
-
+    if (!updatedPayment) {
+      throw new Error(
+        "Refund has already been requested or payment is no longer eligible"
+      );
     }
+
+
+    /* =====================================================
+       9. UPDATE LESSON
+    ===================================================== */
+
+    lesson.paymentStatus =
+      "refund_pending";
+
+    lesson.fundsStatus =
+      "refund_pending";
+
+
+    /*
+      Normal cancellation:
+      student / teacher
+
+      Admin dispute resolution:
+      no canceledBy
+      and lesson remains problem.
+    */
+
+    if (cancellationSource) {
+
+      lesson.canceledBy =
+        cancellationSource;
+
+      lesson.status =
+        "canceled";
+
+    } else {
+
+      /*
+        Admin resolved the lesson
+        as incomplete.
+
+        It is a problem resolution,
+        not a normal cancellation.
+      */
+
+      lesson.status =
+        "problem";
+    }
+
+
+    await lesson.save({
+      session,
+    });
+
+
+    /* =====================================================
+       10. COMMIT ONLY IF THIS FUNCTION OWNS TRANSACTION
+    ===================================================== */
+
+    if (ownSession) {
+      await session.commitTransaction();
+    }
+
+
+    /* =====================================================
+       11. RETURN
+    ===================================================== */
 
     return {
       success: true,
-      payment,
+
+      payment:
+        updatedPayment,
+
       lesson,
+
+      refundStatus:
+        "pending",
     };
 
-  }
 
-  catch (err) {
+  } catch (err) {
 
-    await session.abortTransaction();
+    if (ownSession) {
+      await session.abortTransaction();
+    }
+
     throw err;
 
+  } finally {
+
+    if (ownSession) {
+      await session.endSession();
+    }
   }
-
-  finally {
-
-    session.endSession();
-
-  }
-
 };

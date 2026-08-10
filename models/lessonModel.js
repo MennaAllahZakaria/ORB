@@ -202,6 +202,10 @@ const lessonSchema = new mongoose.Schema(
     type: Boolean,
     default: false,
   },
+  releasedAt: {
+    type: Date,
+    default: null,
+  },
 
 
 
@@ -226,6 +230,16 @@ lessonSchema.index({
   createdAt: -1
 });
 lessonSchema.index({ "interestedTeachers.teacher": 1 });
+lessonSchema.index({
+  student: 1,
+  finalCompletionStatus: 1,
+  meetingEndTime: -1,
+});
 
+lessonSchema.index({
+  acceptedTeacher: 1,
+  finalCompletionStatus: 1,
+  meetingEndTime: -1,
+});
 
 module.exports = mongoose.model("Lesson", lessonSchema);
