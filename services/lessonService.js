@@ -151,6 +151,12 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
     now.getTime() - 6 * 60 * 60 * 1000
   );
 
+  // An urgent request is created when its requested time is within the
+  // next 30 minutes. It must be visible immediately, not only after it starts.
+  const urgentVisibilityEnd = new Date(
+    now.getTime() + 30 * 60 * 1000
+  );
+
   const filter = {
     subject: { $in: teacher.teacherProfile.subjects },
 
@@ -163,12 +169,13 @@ exports.getLessonRequestsForTeacher = asyncHandler(async (req, res, next) => {
         requestedDate: { $gte: now }
       },
 
-      // Immediate lessons
+      // Immediate lessons: display them as soon as they are created,
+      // up to 30 minutes before their requested time, and for 6 hours after.
       {
         isUrgent: true,
         requestedDate: {
           $gte: sixHoursAgo,
-          $lte: now
+          $lte: urgentVisibilityEnd
         }
       }
     ],
