@@ -138,7 +138,8 @@ exports.createLessonMeeting = async ({
   effectiveTimeInSeconds
 }) => {
 
-  const meetingRoomId = `lesson_${uuidv4()}`;
+  // ZEGOCLOUD room IDs may contain only letters, numbers, and underscores.
+  const meetingRoomId = `lesson_${uuidv4().replace(/-/g, "_")}`;
 
   const teacherToken = generateZegoToken(
     teacherId.toString(),

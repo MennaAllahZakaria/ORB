@@ -24,6 +24,9 @@ const { getIO } = require("../config/socket");
 const isSameId = (a, b) =>
   a && b && a.toString() === b.toString();
 
+const isValidZegoRoomId = (roomId) =>
+  typeof roomId === "string" && /^[A-Za-z0-9_]+$/.test(roomId);
+
 
 
 // =======================================================
@@ -996,7 +999,12 @@ exports.createMeeting = asyncHandler(async (req, res, next) => {
         return next(new ApiError("Lesson is not available", 400));
     }
  
-    if (lesson.meetingRoomId) {
+    const hasReusableMeeting =
+      isValidZegoRoomId(lesson.meetingRoomId) &&
+      Boolean(lesson.zegoTokenForStudent) &&
+      Boolean(lesson.zegoTokenForTeacher);
+
+    if (hasReusableMeeting) {
       return res.status(200).json({
         status: "success",
         data: {
@@ -1009,29 +1017,29 @@ exports.createMeeting = asyncHandler(async (req, res, next) => {
       });
     }
 
-    else {
-      const {
-        meetingRoomId,
-        studentToken,
-        teacherToken
-      } = await createLessonMeeting({
-        lesson,
-        studentId: lesson.student,
-        teacherId: lesson.acceptedTeacher,
-        effectiveTimeInSeconds: (lesson.durationInMinutes * 60) + 3600  // Convert minutes to seconds and add 1 hour buffer
-      });
+    // Regenerate credentials for legacy meetings whose room ID does not meet
+    // ZEGOCLOUD's room-ID character requirements.
+    const {
+      meetingRoomId,
+      studentToken,
+      teacherToken
+    } = await createLessonMeeting({
+      lesson,
+      studentId: lesson.student,
+      teacherId: lesson.acceptedTeacher,
+      effectiveTimeInSeconds: (lesson.durationInMinutes * 60) + 3600  // Convert minutes to seconds and add 1 hour buffer
+    });
 
-      res.status(200).json({
-        status: "success",
-        data: {
-          meetingRoomId,
-          tokens: {
-            student: studentToken,
-            teacher: teacherToken
-          }
+    return res.status(200).json({
+      status: "success",
+      data: {
+        meetingRoomId,
+        tokens: {
+          student: studentToken,
+          teacher: teacherToken
         }
-      });
-  }
+      }
+    });
 
 });
 
