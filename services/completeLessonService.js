@@ -1565,7 +1565,11 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
     ===================================================== */
 
     const match = {
-      finalCompletionStatus: "completed",
+      // A finished meeting remains in this list while both parties submit
+      // their outcome. It becomes fully completed only after both confirm.
+      finalCompletionStatus: {
+        $in: ["pending", "completed"],
+      },
       meetingEndTime: {
         $ne: null,
       },

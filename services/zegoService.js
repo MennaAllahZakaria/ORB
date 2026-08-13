@@ -229,9 +229,10 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
   /* ===========================
      CONSTANTS
   ============================ */
-  const INACTIVITY_LIMIT = 2 * 60 * 1000; // دقيقتين
-  const MIN_LESSON_DURATION = 5 * 60 * 1000; // 5 دقايق
-  const FINAL_CHECK_DELAY = 15000; // 15 ثانية
+  // Wait briefly for Zego's room user list to settle after a logout.
+  // A room that is empty then moves to the completion-review flow, even
+  // when the session was short; funds are still not released automatically.
+  const FINAL_CHECK_DELAY = 15000; // 15 seconds
 
   switch (event) {
     /* ===========================
@@ -317,56 +318,39 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
 
           const isEmpty = usersInRoom.length === 0;
 
-          const inactiveTooLong =
-            freshLesson.lastActiveAt &&
-            (now - freshLesson.lastActiveAt) > INACTIVITY_LIMIT;
-
-          const longEnough =
-            freshLesson.meetingStartTime &&
-            (now - freshLesson.meetingStartTime) > MIN_LESSON_DURATION;
-
           const shouldEnd =
             isEmpty &&
-            inactiveTooLong &&
-            longEnough &&
+            freshLesson.meetingStartTime &&
             freshLesson.meetingStatus !== "finished";
 
           if (shouldEnd) {
-            console.log("[Zego] Ending lesson safely");
+            console.log("[Zego] Ending lesson and awaiting both completion responses");
 
             freshLesson.meetingEndTime = now;
             freshLesson.meetingStatus = "finished";
-            freshLesson.finalCompletionStatus = "completed";
+
+            // Zego confirms that the room ended, not that both parties agree
+            // the lesson was completed. Keep the lesson available for the
+            // completion/review flow; only that flow may mark it completed
+            // or problematic and release funds.
+            freshLesson.finalCompletionStatus = "pending";
+            freshLesson.reviewStatus = "waiting_second_party";
+            freshLesson.disputeFlag = false;
 
             await freshLesson.save();
 
             /* ===========================
-               🎁 Points
-            ============================ */
-            if (freshLesson.student?._id) {
-              try {
-                await addPoints(
-                  freshLesson.student._id,
-                  20,
-                  "Lesson completed"
-                );
-              } catch (err) {
-                console.error("[Points]", err.message);
-              }
-            }
-
-            /* ===========================
-               🔔 Notification
+               🔔 REQUEST COMPLETION REVIEW
             ============================ */
             if (!freshLesson.endNotificationSent) {
               await sendLessonNotification(
                 [freshLesson.acceptedTeacher, freshLesson.student],
                 {
-                  titleEn: "✅ The lesson has ended",
-                  titleAr: "✅ انتهت الحصة",
-                  bodyEn: "The lesson has finished successfully.",
-                  bodyAr: "انتهت الحصة بنجاح.",
-                  type: "lesson_ended",
+                  titleEn: "📝 Confirm your lesson outcome",
+                  titleAr: "📝 أكّد نتيجة الحصة",
+                  bodyEn: "The meeting ended. Please confirm completion or report a problem.",
+                  bodyAr: "انتهى الاجتماع. أكّد إتمام الحصة أو أبلغ عن مشكلة.",
+                  type: "lesson_completion_required",
                   lessonId: freshLesson._id,
                 }
               );
