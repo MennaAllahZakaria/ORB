@@ -80,9 +80,7 @@ function generateToken04(appId, userId, secret, effectiveTimeInSeconds, payload)
         payload: payload || ''
     };
     var plaintText = JSON.stringify(tokenInfo); // Convert tokenInfo object to JSON string
-    console.log('plain text: ', plaintText);
     var iv = makeRandomIv(); // Generate random 16 character string for iv
-    console.log('iv', iv);
     var encryptBuf = aesEncrypt(plaintText, secret, iv); // Encrypt JSON string using AES encryption function
     var _a = [new Uint8Array(8), new Uint8Array(2), new Uint8Array(2)], b1 = _a[0], b2 = _a[1], b3 = _a[2];
     new DataView(b1.buffer).setBigInt64(0, BigInt(tokenInfo.expire), false); // Set expire time in binary format
