@@ -182,10 +182,13 @@ exports.sendMessage = asyncHandler(async (req, res, next) => {
   ========================== */
 
   await Thread.findByIdAndUpdate(
-    { _id: threadId },
-    { lastOfferMessage: msg._id,
-      offerExpiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000) // 2 hours from now
-     }
+    threadId,
+    {
+      $set: {
+        lastOfferMessage: msg._id,
+        offerExpiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000) // 2 hours from now
+      }
+    }
   );
 
   /* =========================
