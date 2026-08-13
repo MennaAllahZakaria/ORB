@@ -214,6 +214,18 @@ const lessonSchema = new mongoose.Schema(
 );
 
 /* =========================
+   LEGACY DATA COMPATIBILITY
+========================= */
+// Older lesson records may use "held". Normalize it before validation so
+// scheduled jobs can save the rest of the lesson state without failing.
+lessonSchema.pre("validate", function (next) {
+  if (this.fundsStatus === "held") {
+    this.fundsStatus = "holding";
+  }
+  next();
+});
+
+/* =========================
    VIRTUALS
 ========================= */
 lessonSchema.virtual("durationMinutes").get(function () {
