@@ -83,30 +83,32 @@ exports.getOrCreateThread = asyncHandler(async (req, res, next) => {
       return next(new ApiError("teacherId required in query ", 400));
   }
 
-  const thread = await Thread.findOneAndUpdate(
-    {
+  const threadFilter = {
+    lesson: lessonId,
+    teacher: teacherId,
+    student: lesson.student
+  };
+
+  // Reopening the negotiation screen must not erase an active offer.
+  // Only a canceled, timed-out, or closed thread is reset for a new round.
+  let thread = await Thread.findOne(threadFilter);
+
+  if (!thread) {
+    thread = await Thread.create({
       lesson: lessonId,
+      student: lesson.student,
       teacher: teacherId,
-      student: lesson.student
-    },
-    {
-      $set: {
-        lesson: lessonId,
-        student: lesson.student,
-        teacher: teacherId,
-        status: "negotiating",
-        agreedPrice: null,
-        lastOfferMessage: null,
-        lastOfferBy: null,
-        lastOfferAt: null,
-        offerExpiresAt: null
-      }
-    },
-    {
-      new: true,
-      upsert: true
-    }
-  );
+      status: "negotiating"
+    });
+  } else if (thread.status !== "negotiating") {
+    thread.status = "negotiating";
+    thread.agreedPrice = null;
+    thread.lastOfferMessage = null;
+    thread.lastOfferBy = null;
+    thread.lastOfferAt = null;
+    thread.offerExpiresAt = null;
+    await thread.save();
+  }
 
   res.json({ status: "success", data: thread });
 });
