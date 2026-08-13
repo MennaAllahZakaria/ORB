@@ -107,13 +107,28 @@ function extractZegoCallback(body = {}) {
       details.room_id ||
       details.roomId ||
       details.RoomId,
+    // ZEGOCLOUD Server API callbacks identify the user as user_account.
+    // Keep the older aliases because callback payload format may vary by product/version.
     userId:
+      decodedBody?.user_account ||
+      decodedBody?.userAccount ||
+      decodedBody?.UserAccount ||
       decodedBody?.user_id ||
       decodedBody?.userId ||
       decodedBody?.UserId ||
+      decodedBody?.user?.user_account ||
+      decodedBody?.user?.userAccount ||
+      decodedBody?.user?.user_id ||
+      decodedBody?.user?.userId ||
+      decodedBody?.user?.id ||
+      details.user_account ||
+      details.userAccount ||
+      details.UserAccount ||
       details.user_id ||
       details.userId ||
       details.UserId ||
+      details.user?.user_account ||
+      details.user?.userAccount ||
       details.user?.user_id ||
       details.user?.userId ||
       details.user?.id,
