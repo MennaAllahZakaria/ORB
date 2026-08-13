@@ -12,22 +12,32 @@ const axios = require("axios");
 
 const APP_ID = process.env.ZEGO_APP_ID;
 const SERVER_SECRET = process.env.ZEGO_SERVER_SECRET;
+const ZEGO_SIGNATURE_VERSION = "2.0";
+
+/**
+ * ZEGOCLOUD Server API v2 signature:
+ * md5(AppId + SignatureNonce + ServerSecret + Timestamp)
+ */
+function generateZegoApiSignature({ appId, signatureNonce, timestamp }) {
+  return crypto
+    .createHash("md5")
+    .update(`${appId}${signatureNonce}${SERVER_SECRET}${timestamp}`, "utf8")
+    .digest("hex");
+}
 
 async function getZegoUsers(roomId) {
+  if (!APP_ID || !SERVER_SECRET) {
+    console.error("[Zego API Error] Missing ZEGO_APP_ID or ZEGO_SERVER_SECRET");
+    return [];
+  }
+
   const timestamp = Math.floor(Date.now() / 1000);
-  const nonce = Math.random().toString(36).substring(2, 15);
-
-  const stringToSign =
-    `Action=DescribeUserList` +
-    `&AppId=${APP_ID}` +
-    `&Nonce=${nonce}` +
-    `&RoomId=${roomId}` +
-    `&Timestamp=${timestamp}`;
-
-  const signature = crypto
-    .createHmac("sha256", SERVER_SECRET)
-    .update(stringToSign)
-    .digest("base64"); // base64 or hex
+  const signatureNonce = crypto.randomBytes(8).toString("hex");
+  const signature = generateZegoApiSignature({
+    appId: APP_ID,
+    signatureNonce,
+    timestamp,
+  });
 
   try {
     const response = await axios.get("https://rtc-api.zego.im/", {
@@ -36,26 +46,87 @@ async function getZegoUsers(roomId) {
         AppId: APP_ID,
         RoomId: roomId,
         Timestamp: timestamp,
-        Nonce: nonce,
         Signature: signature,
-
-        //  optional parameters
+        SignatureNonce: signatureNonce,
+        SignatureVersion: ZEGO_SIGNATURE_VERSION,
         Mode: 0,
         Limit: 200,
         Marker: "",
       },
     });
 
-    console.log("[Zego raw response]", response.data);
+    if (response.data?.Code !== 0) {
+      console.error("[Zego API Error]", response.data);
+      return [];
+    }
 
     const users = response.data?.Data?.UserList || [];
-
-    return users.map((u) => u.UserId);
-
+    return users.map((user) => String(user.UserId || user.user_id || "").trim()).filter(Boolean);
   } catch (err) {
     console.error("[Zego API Error]", err.response?.data || err.message);
     return [];
   }
+}
+
+function decodeZegoValue(value) {
+  if (typeof value !== "string") return value;
+
+  let decoded = value;
+  if (value.includes("%") || value.includes("+")) {
+    try {
+      decoded = decodeURIComponent(value.replace(/\+/g, "%20"));
+    } catch (_) {
+      console.warn("[Zego] Unable to URL-decode callback value; using the original value");
+    }
+  }
+
+  try {
+    return JSON.parse(decoded);
+  } catch (_) {
+    const formFields = new URLSearchParams(decoded);
+    if ([...formFields.keys()].length > 0) {
+      return Object.fromEntries(formFields.entries());
+    }
+    return decoded;
+  }
+}
+
+function extractZegoCallback(body = {}) {
+  const decodedBody = decodeZegoValue(body);
+  const payload = decodeZegoValue(
+    decodedBody?.data || decodedBody?.Data || decodedBody?.payload || decodedBody
+  );
+  const details = payload && typeof payload === "object" ? payload : {};
+
+  return {
+    event: decodedBody?.event || decodedBody?.Event || details.event || details.Event,
+    roomId:
+      decodedBody?.room_id ||
+      decodedBody?.roomId ||
+      decodedBody?.RoomId ||
+      details.room_id ||
+      details.roomId ||
+      details.RoomId,
+    userId:
+      decodedBody?.user_id ||
+      decodedBody?.userId ||
+      decodedBody?.UserId ||
+      details.user_id ||
+      details.userId ||
+      details.UserId ||
+      details.user?.user_id ||
+      details.user?.userId ||
+      details.user?.id,
+    eventTime:
+      decodedBody?.event_time ||
+      decodedBody?.eventTime ||
+      decodedBody?.timestamp ||
+      details.event_time ||
+      details.eventTime ||
+      details.timestamp,
+    bodyKeys: Object.keys(decodedBody || {}),
+    payloadKeys: Object.keys(details || {}),
+  };
 }
 
 const isSameId = (a, b) => a && b && a.toString() === b.toString();
@@ -96,11 +167,23 @@ exports.createLessonMeeting = async ({
 };
 
 exports.zegoCallback = asyncHandler(async (req, res) => {
-  const { event, room_id, user_id, event_time } = req.body;
+  const {
+    event,
+    roomId: room_id,
+    userId: user_id,
+    eventTime: event_time,
+    bodyKeys,
+    payloadKeys,
+  } = extractZegoCallback(req.body);
 
-  console.log("[Zego] Event:", { event, room_id, user_id });
+  console.log("[Zego] Event:", {
+    event,
+    room_id,
+    user_id: user_id ? String(user_id) : undefined,
+  });
 
   if (!event || !room_id) {
+    console.warn("[Zego] Callback missing required fields", { bodyKeys, payloadKeys });
     return res.status(400).json({ message: "Missing event or room_id" });
   }
 
