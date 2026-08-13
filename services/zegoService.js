@@ -234,6 +234,19 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
   const FINAL_CHECK_DELAY = 15000; // 15 ثانية
 
   switch (event) {
+    /* ===========================
+       ROOM LIFECYCLE EVENTS
+       These callbacks describe the room itself; Zego does not attach a user account.
+    ============================ */
+    case "room_create": {
+      console.log("[Zego] Room created:", room_id);
+      break;
+    }
+
+    case "room_close": {
+      console.log("[Zego] Room closed:", room_id);
+      break;
+    }
 
     /* ===========================
        USER JOINED
