@@ -329,11 +329,11 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
             freshLesson.meetingEndTime = now;
             freshLesson.meetingStatus = "finished";
 
-            // Zego confirms that the room ended, not that both parties agree
-            // the lesson was completed. Keep the lesson available for the
-            // completion/review flow; only that flow may mark it completed
-            // or problematic and release funds.
-            freshLesson.finalCompletionStatus = "pending";
+            // Keep the legacy frontend contract: an ended meeting is listed
+            // as completed until a party reports a problem during review.
+            // This status does not release funds; the completion flow still
+            // controls confirmation, disputes, and payment release.
+            freshLesson.finalCompletionStatus = "completed";
             freshLesson.reviewStatus = "waiting_second_party";
             freshLesson.disputeFlag = false;
 
