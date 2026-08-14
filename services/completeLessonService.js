@@ -312,9 +312,14 @@ exports.submitCompletion = asyncHandler(async (req, res, next) => {
     /*
       First party said completed.
 
-      Do NOT mark the lesson as completed yet.
-      We still need the second party's response.
+      Preserve the legacy frontend contract: the lesson is listed as
+      completed while waiting for the second party's review response.
+      The payment flow still requires both confirmations before release.
     */
+    lesson.finalCompletionStatus = "completed";
+    lesson.reviewStatus = "waiting_second_party";
+    lesson.disputeFlag = false;
+    await lesson.save();
 
     return res.status(201).json({
       status: "success",
