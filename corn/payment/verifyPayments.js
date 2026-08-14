@@ -1,6 +1,20 @@
 const Payment = require("../../models/payment/paymentModel");
 const { handlePaymentSuccess } = require("../../services/payment/paymentHandleService");
 const axios = require("axios");
+const Lesson = require("../../models/lessonModel");
+
+const resetLessonToUnpaid = async (payment) => {
+  const lesson = await Lesson.findById(payment.lessonId);
+  if (!lesson || lesson.paymentStatus === "paid" || lesson.paymentStatus === "released") {
+    return;
+  }
+
+  lesson.paymentStatus = "unpaid";
+  if (lesson.fundsStatus === "held") {
+    lesson.fundsStatus = "holding";
+  }
+  await lesson.save();
+};
 
 module.exports = async () => {
 
@@ -20,6 +34,7 @@ module.exports = async () => {
       if (Date.now() - payment.createdAt > 30 * 60 * 1000) {
         payment.status = "failed";
         await payment.save();
+        await resetLessonToUnpaid(payment);
         console.log(`⏰ Payment expired: ${payment._id}`);
         continue;
       }
@@ -61,6 +76,7 @@ module.exports = async () => {
 
         payment.status = "failed";
         await payment.save();
+        await resetLessonToUnpaid(payment);
 
         console.log(`❌ Payment failed: ${payment._id}`);
       }
@@ -89,6 +105,7 @@ module.exports = async () => {
 
         payment.status = "failed";
         await payment.save();
+        await resetLessonToUnpaid(payment);
       }
       console.error(`❌ Error verifying payment ${payment._id}:`, err.message);
       continue;

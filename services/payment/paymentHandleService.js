@@ -50,9 +50,16 @@ exports.handlePaymentSuccess = async ({
     if (!lesson) throw new Error("Lesson not found");
 
     if (inquiry.status !== "PAID") {
-      throw new Error("Payment not completed");
+      // A checkout attempt is not a payment. Persist the neutral state
+      // instead of throwing after the save (which would rollback to pending).
       lesson.paymentStatus = "unpaid";
+      if (lesson.fundsStatus === "held") {
+        lesson.fundsStatus = "holding";
+      }
       await lesson.save({ session });
+      payment.status = "failed";
+      await payment.save({ session });
+      return;
     }
 
     if (Number(inquiry.Amount) !== payment.amount) {

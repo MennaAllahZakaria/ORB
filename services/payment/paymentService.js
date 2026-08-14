@@ -49,8 +49,15 @@ exports.createPayment = async (req, res) => {
     customerReference: customerReference,
   });
 
-  lesson.paymentStatus = "pending";
-  await lesson.save();
+  // Creating a checkout session is not a payment. Keep the lesson unpaid
+  // until EasyKash confirms a PAID transaction through the webhook/job.
+  if (lesson.paymentStatus !== "paid" && lesson.paymentStatus !== "released") {
+    lesson.paymentStatus = "unpaid";
+    if (lesson.fundsStatus === "held") {
+      lesson.fundsStatus = "holding";
+    }
+    await lesson.save();
+  }
   
  console.log("SUCCESS:", response.data);
 
