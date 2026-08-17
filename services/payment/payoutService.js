@@ -4,6 +4,7 @@ const User = require("../../models/userModel");
 const asyncHandler = require("express-async-handler");
 const { handlePayout } = require("./paymentHandleService");
 const { sendNotification } = require("../../utils/notificationHelper");
+const { writeAuditLog } = require("../auditService");
 
 exports.requestPayout = asyncHandler(async (req, res) => {
   const { amount, method, details } = req.body;
@@ -34,6 +35,7 @@ exports.completePayout = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Already completed" });
   }
 
+  const before = { status: payout.status, amount: payout.amount, teacherId: payout.teacherId };
   payout.status = "completed";
   payout.processedAt = new Date();
 
@@ -42,7 +44,16 @@ exports.completePayout = asyncHandler(async (req, res) => {
   await Ledger.updateMany(
       { payoutId: payout._id },
       { status: "confirmed" }
-    );
+  );
+
+  await writeAuditLog({
+    req,
+    action: "payout.completed",
+    entityType: "Payout",
+    entityId: payout._id,
+    before,
+    after: { status: payout.status, processedAt: payout.processedAt, amount: payout.amount },
+  });
 
   // Notify Teacher
   const teacher = await User.findById(payout.teacherId);

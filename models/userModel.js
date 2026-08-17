@@ -133,7 +133,7 @@ const userSchema = new mongoose.Schema(
 
     role: {
       type: String,
-      enum: ["student", "teacher", "admin"],
+      enum: ["student", "teacher", "admin", "superAdmin"],
     },
 
     fcmToken: {

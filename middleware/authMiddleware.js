@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const asyncHandler = require("express-async-handler");
 const ApiError = require("../utils/apiError");
 const User = require("../models/userModel");
+const { isRoleAllowed } = require("../utils/accessPolicy");
 
 // ================== PROTECT ==================
 exports.protect = asyncHandler(async (req, res, next) => {
@@ -46,7 +47,7 @@ exports.protect = asyncHandler(async (req, res, next) => {
 // ================== ALLOWED TO ==================
 exports.allowedTo = (...roles) => {
     return (req, res, next) => {
-        if (!roles.includes(req.user.role)) {
+        if (!isRoleAllowed(req.user.role, roles)) {
         return next(new ApiError("You do not have permission to perform this action", 403));
         }
         next();

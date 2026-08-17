@@ -14,6 +14,7 @@ const payoutRoutes = require("./payment/payoutRoute");
 const disputeRoutes = require("./payment/disputeRoute");
 const webhookRoutes = require("./payment/webhookRoute");
 const paymentRoutes = require("./payment/paymentRoute");
+const auditRoutes = require("./auditRoute");
 
 
 const mountRoutes = (app) => {
@@ -58,6 +59,7 @@ app.use("/payouts", payoutRoutes);
 app.use("/disputes", disputeRoutes);
 app.use("/webhooks", webhookRoutes);
 app.use("/payments", paymentRoutes);
+app.use("/audit-logs", auditRoutes);
 
 //=============================
 // 404 Handler

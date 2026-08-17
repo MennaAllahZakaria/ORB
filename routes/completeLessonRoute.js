@@ -10,6 +10,7 @@ const {
 } = require("../services/completeLessonService");
 
 const { protect, allowedTo } = require("../middleware/authMiddleware");
+const { auditOnSuccess } = require("../middleware/auditMiddleware");
 
 const {
     lessonIdValidator
@@ -25,7 +26,7 @@ router.post("/:lessonId",allowedTo("student" , "teacher"),lessonIdValidator,uplo
 
 router.get("/disputedLessons", allowedTo("admin"),getDisputedLessons);
 
-router.put("/:lessonId/adminResolve", allowedTo("admin"),lessonIdValidator,adminResolveLesson);
+router.put("/:lessonId/adminResolve", allowedTo("admin"),lessonIdValidator,auditOnSuccess({ action: "lesson.admin_resolved", entityType: "Lesson" }),adminResolveLesson);
 
 router.get("/pastCompletedLessons", allowedTo("student", "teacher"),getPastCompletedLessons);
 

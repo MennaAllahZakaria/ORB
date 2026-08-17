@@ -6,6 +6,7 @@ const Payout = require("../../models/payment/payoutModel");
 const User = require("../../models/userModel");
 const mongoose = require("mongoose");
 const { sendNotification } = require("../../utils/notificationHelper");
+const { writeAuditLog } = require("../auditService");
 
 const axios = require("axios");
 
@@ -427,12 +428,18 @@ exports.handleDisputeResolution = async ({
   disputeId,
   decision,
   refundAmount = 0,
+  note,
   adminId,
+  adminRole = "admin",
 }) => {
   const dispute = await Dispute.findById(disputeId);
   if (!dispute) throw new Error("Dispute not found");
 
-  if (dispute.status === "resolved") return dispute;
+  if (dispute.status === "resolved") return { success: true, alreadyResolved: true, dispute };
+
+  if (!["release", "refund", "partial"].includes(decision)) {
+    throw new Error("Invalid dispute decision");
+  }
 
   const lesson = await Lesson.findById(dispute.lessonId);
   if (!lesson) throw new Error("Lesson not found");
@@ -469,9 +476,10 @@ exports.handleDisputeResolution = async ({
   }
 
   else if (decision === "partial") {
-    if (refundAmount > net) throw new Error("Invalid refund");
+    const numericRefund = Number(refundAmount);
+    if (!Number.isFinite(numericRefund) || numericRefund <= 0 || numericRefund > net) throw new Error("Invalid refund");
 
-    const teacherShare = net - refundAmount;
+    const teacherShare = net - numericRefund;
 
     await Ledger.updateMany(
       { lessonId: lesson._id, status: "pending" },
@@ -488,7 +496,7 @@ exports.handleDisputeResolution = async ({
       },
       {
         userId: lesson.student,
-        amount: refundAmount,
+        amount: numericRefund,
         type: "credit",
         status: "confirmed",
         source: "refund",
@@ -499,14 +507,27 @@ exports.handleDisputeResolution = async ({
     lesson.status = "approved";
   }
 
+  const before = { status: dispute.status, resolution: dispute.resolution, lessonStatus: lesson.status, fundsStatus: lesson.fundsStatus };
+  const resolvedAmount = decision === "partial" ? Number(refundAmount) : 0;
   dispute.status = "resolved";
-  dispute.resolution = { decision, amount: refundAmount, decidedBy: adminId };
+  dispute.resolution = { decision, amount: resolvedAmount, note: typeof note === "string" ? note.trim().slice(0, 2000) : undefined, decidedBy: adminId };
   dispute.resolvedAt = new Date();
 
   await dispute.save();
   await lesson.save();
 
-  return { success: true };
+  await writeAuditLog({
+    actorId: adminId,
+    actorRole: adminRole,
+    action: "financial_dispute.resolved",
+    entityType: "Dispute",
+    entityId: dispute._id,
+    before,
+    after: { status: dispute.status, resolution: dispute.resolution, lessonStatus: lesson.status, fundsStatus: lesson.fundsStatus },
+    metadata: { lessonId: lesson._id, price: lesson.price, platformFee, net },
+  });
+
+  return { success: true, dispute, financialOutcome: lesson.fundsStatus };
 };
 
 

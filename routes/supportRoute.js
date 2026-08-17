@@ -12,6 +12,7 @@ const {
 } = require("../services/supportService");
 
 const { protect, allowedTo } = require("../middleware/authMiddleware");
+const { auditOnSuccess } = require("../middleware/auditMiddleware");
 
 const {uploadImageAndFile, attachUploadedLinks} = require("../middleware/uploadFileMiddleware");
 
@@ -52,6 +53,7 @@ router.put(
     protect,
     allowedTo("admin" , "student", "teacher"),
     uploadImageAndFile, attachUploadedLinks,
+    auditOnSuccess({ action: "support.updated", entityType: "SupportTicket" }),
     updateSupportRequest
 );
 
@@ -60,6 +62,7 @@ router.put(
     "/:id/close",
     protect,
     allowedTo("admin"),
+    auditOnSuccess({ action: "support.closed", entityType: "SupportTicket" }),
     closeSupportRequest
 );
 // ================= USER - REOPEN SUPPORT REQUEST =================
@@ -67,6 +70,7 @@ router.put(
     "/:id/reopen",
     protect,
     allowedTo("admin"),
+    auditOnSuccess({ action: "support.reopened", entityType: "SupportTicket" }),
     reopenSupportRequest
 );
 module.exports = router;
