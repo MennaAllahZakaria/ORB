@@ -1,4 +1,5 @@
-require("dotenv").config({ path: "config.env" });
+require("dotenv").config({ path: ".env" });
+require("dotenv").config({ path: "config.env", override: false });
 
 const mongoose = require("mongoose");
 const User = require("../models/userModel");

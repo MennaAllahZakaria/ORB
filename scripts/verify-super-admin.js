@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
 const User = require("../models/userModel");
+require("dotenv").config({ path: ".env" });
+require("dotenv").config({ path: "config.env", override: false });
 
 async function verify() {
   const email = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
