@@ -6,6 +6,7 @@ const Lesson = require("../models/lessonModel");
 const CompleteLesson = require("../models/completeLossonModel");
 const Review = require("../models/reviewModel");
 const Notification = require("../models/notificationModel");
+const mongoose = require("mongoose");
 const {
   handleRefund,
   handleLessonCompletion
