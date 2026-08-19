@@ -1,5 +1,6 @@
 const asyncHandler = require("express-async-handler");
 const ApiError = require("../utils/apiError");
+const { isAdminCompatibleRole } = require("../utils/accessPolicy");
 
 const User = require("../models/userModel");
 const Lesson = require("../models/lessonModel");
@@ -720,7 +721,7 @@ exports.getDisputedLessons = asyncHandler(async (req, res, next) => {
      1. ADMIN ONLY
   ===================================================== */
 
-  if (req.user.role !== "admin") {
+  if (!isAdminCompatibleRole(req.user.role)) {
     return next(
       new ApiError("Not authorized", 403)
     );
@@ -1002,7 +1003,7 @@ exports.adminResolveLesson = asyncHandler(
        1. ADMIN ONLY
     ===================================================== */
 
-    if (req.user.role !== "admin") {
+    if (!isAdminCompatibleRole(req.user.role)) {
       return next(
         new ApiError(
           "Not authorized",

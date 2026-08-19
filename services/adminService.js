@@ -7,6 +7,10 @@ const sendEmail = require("../utils/sendEmail");
 const ApiError = require("../utils/apiError");
 const HandlerFactory = require("./handlerFactory");
 const { generateStrongPassword } = require("../utils/generatePassword");
+const Dispute = require("../models/payment/disputeModel");
+const Payout = require("../models/payment/payoutModel");
+const Support = require("../models/supportModel");
+const { writeAuditLog } = require("./auditService");
 
 // Helper: get salt rounds from env (used for password hashing)
 const getSaltRounds = () => parseInt(process.env.HASH_PASS, 10) || 12;
@@ -48,8 +52,6 @@ exports.createAdmin = asyncHandler(async (req, res, next) => {
     password: hashedPassword,
     role: "admin",
   });
-  console.log("New admin created:", password);
-
   // Try to send credentials email (do NOT break if email fails)
   try {
     const message = `
@@ -67,6 +69,15 @@ exports.createAdmin = asyncHandler(async (req, res, next) => {
     console.error("Error sending email to new admin:", err.message);
   }
 
+  await writeAuditLog({
+    req,
+    action: "admin.created",
+    entityType: "User",
+    entityId: newAdmin._id,
+    after: newAdmin,
+    metadata: { emailDeliveryAttempted: true },
+  });
+
   res.status(201).json({
     status: "success",
     data: newAdmin,
@@ -79,7 +90,7 @@ exports.createAdmin = asyncHandler(async (req, res, next) => {
  * @access  Private (admin)
  */
 exports.getAllAdmins = asyncHandler(async (req, res, next) => {
-  const admins = await User.find({ role: "admin" }).select(
+  const admins = await User.find({ role: { $in: ["admin", "superAdmin"] } }).select(
     "firstName lastName email phone createdAt imageProfile"
   );
 
@@ -98,7 +109,7 @@ exports.getAllAdmins = asyncHandler(async (req, res, next) => {
 exports.getAdmin = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
 
-  const admin = await User.findOne({ _id: id, role: "admin" });
+  const admin = await User.findOne({ _id: id, role: { $in: ["admin", "superAdmin"] } });
   if (!admin) {
     return next(new ApiError("Admin not found", 404));
   }
@@ -146,9 +157,9 @@ exports.updateAdmin = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
   const updates = { ...req.body };
 
-  // Prevent role change away from "admin"
-  if (updates.role && updates.role !== "admin") {
-    return next(new ApiError("Cannot change role of an admin", 400));
+  // Role promotion/demotion is intentionally separate from profile edits.
+  if (Object.prototype.hasOwnProperty.call(updates, "role")) {
+    return next(new ApiError("Cannot change role through this endpoint", 400));
   }
 
   // Prevent password change via this endpoint
@@ -162,7 +173,7 @@ exports.updateAdmin = asyncHandler(async (req, res, next) => {
   }
 
   const admin = await User.findOneAndUpdate(
-    { _id: id, role: "admin" },
+    { _id: id, role: { $in: ["admin", "superAdmin"] } },
     updates,
     { new: true }
   );

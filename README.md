@@ -1,145 +1,132 @@
-# 🌟 ORB - Online Educational Platform Backend
+# ORB API
 
-ORB is a robust, scalable, and feature-rich backend system designed for an online educational platform. It facilitates seamless interaction between students and teachers, featuring real-time negotiations, secure payments, automated lesson management, and a comprehensive notification system.
+باك إند منصة **ORB** التعليمية. يوفّر واجهات REST للمصادقة وإدارة المستخدمين والدروس والمفاوضات والمدفوعات والإشعارات، إضافة إلى مراكز عمليات الإدارة مثل مراجعة المدرسين، النزاعات، التحويلات، سجل التدقيق، والحصص المتنازع عليها.
 
----
+> هذا المستودع يحتوي على كود الخادم فقط. واجهة الإدارة العربية موجودة في مستودع [ORB-WEB][2]، وتتصل بالخادم عبر عنوان Railway المهيأ لديها.
 
-## 🚀 Key Features
+## نظرة عامة
 
-### 🎓 Lesson Management
-- **Request System**: Students can post lesson requests for specific subjects.
-- **Teacher Matching**: Teachers can express interest and negotiate prices.
-- **Automated Scheduling**: Integration with ZegoCloud for virtual classrooms.
-- **Completion Tracking**: Automated Cron jobs to handle lesson start/end and missed sessions.
+يعتمد الخادم على Express وMongoDB/Mongoose، ويستخدم JWT للمصادقة. يدعم الأدوار `student` و`teacher` و`admin` و`superAdmin`. يرث `superAdmin` صلاحيات المسارات الإدارية المعتادة، ويقتصر عليه إنشاء وتعديل وحذف حسابات الأدمن وقراءة سجل التدقيق. تُعرّف أوامر التشغيل والاختبار والمهام الإدارية في `package.json`.[1]
 
-### 💬 Negotiation & Real-time Interaction
-- **Dynamic Pricing**: Counter-offer system between students and teachers.
-- **Thread Management**: Organized negotiation threads for each lesson request.
-- **Socket.io Integration**: Real-time updates for messages and offers.
+| المجال | أمثلة لما يقدمه الخادم |
+|---|---|
+| المصادقة | تسجيل البريد وكلمة المرور، تسجيل Google، استعادة كلمة المرور، و`GET /auth/me`. |
+| التشغيل التعليمي | طلبات الدروس، التفاوض، الإتمام، المراجعة، والحصص المتنازع عليها. |
+| الإدارة | اعتماد/رفض المدرسين، إدارة الحالة، الدعم، الإشعارات، التحويلات، والملخص التشغيلي. |
+| الحوكمة | دور `superAdmin`، سجل تدقيق للقرارات الحساسة، ومهام ترقية الدور والتحقق منه. |
 
-### 💳 Financial System
-- **Secure Payments**: Integration with **EasyKash** for student payments.
-- **Teacher Wallet**: Ledger-based balance tracking with credit/debit history.
-- **Payout Management**: Automated and manual payout requests for teachers.
-- **Dispute Resolution**: Admin-mediated dispute handling for failed or problematic lessons.
+## المتطلبات والتشغيل المحلي
 
-### 🔔 Smart Notifications
-- **Multi-channel**: Push notifications (Firebase Cloud Messaging) and Email (Nodemailer).
-- **Bilingual Support**: All communications support both **Arabic** and **English**.
-- **Contextual Alerts**: Real-time alerts for new offers, payment status, lesson reminders, and points earned.
-
-### 🏆 Gamification
-- **Points System**: Users earn points for completing lessons and writing reviews.
-- **Leveling**: Automated user leveling (Bronze, Silver, Gold, Platinum) based on points.
-
----
-
-## 🛠️ Tech Stack
-
-- **Runtime**: [Node.js](https://nodejs.org/)
-- **Framework**: [Express.js](https://expressjs.com/)
-- **Database**: [MongoDB](https://www.mongodb.com/) with [Mongoose](https://mongoosejs.com/)
-- **Real-time**: [Socket.io](https://socket.io/)
-- **Authentication**: [JWT (JSON Web Tokens)](https://jwt.io/) & [Bcrypt](https://github.com/kelektiv/node.bcrypt.js)
-- **Notifications**: [Firebase Admin SDK](https://firebase.google.com/docs/admin) & [Nodemailer](https://nodemailer.com/)
-- **Cloud Storage**: [Cloudinary](https://cloudinary.com/) (for profile images and uploads)
-- **Scheduled Tasks**: [Node-cron](https://github.com/node-cron/node-cron)
-
----
-
-## 📂 Project Structure
+يتطلب المشروع Node.js وMongoDB. ثبّتي الحزم أولاً، ثم انسخي أسماء المتغيرات من `.env.example` إلى ملف `.env` محلي وأضيفي القيم الخاصة بك. يدعم الخادم أيضاً `config.env` للتوافق مع الإعدادات القديمة، لكن `.env` هو الخيار الموصى به.
 
 ```bash
-ORB/
-├── config/             # Database and Socket configurations
-├── corn/               # Automated Cron jobs (Reminders, Completion)
-├── fireBase/           # Firebase Admin initialization
-├── middleware/         # Auth, Error handling, and Validation middlewares
-├── models/             # Mongoose Schemas (User, Lesson, Payment, etc.)
-├── routes/             # API Route definitions
-├── services/           # Business logic and Controller handlers
-├── utils/              # Helper functions (FCM, Email, Validators)
-├── uploads/            # Static assets
-└── index.js            # Entry point
+git clone https://github.com/MennaAllahZakaria/ORB.git
+cd ORB
+npm install
+npm run dev
 ```
 
----
+| الأمر | الغرض |
+|---|---|
+| `npm run dev` | تشغيل الخادم محلياً عبر `nodemon`. |
+| `npm start` | تشغيل الخادم باستخدام Node.js. |
+| `npm run start:prod` | تشغيل إنتاجي مع `NODE_ENV=production`. |
+| `npm test` | تشغيل اختبارات Node المضمنة. |
+| `npm run promote:super-admin` | ترقية حساب أدمن محدد بواسطة `SUPER_ADMIN_EMAIL`. |
+| `npm run verify:super-admin` | التحقق من دور الحساب المحدد. |
 
-## ⚙️ Installation & Setup
+## مثال ملف البيئة
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/MennaAllahZakaria/ORB.git
-   cd ORB
-   ```
+> انسخي **الأسماء فقط** إلى `.env` أو متغيرات Railway وأضيفي القيم لديك. لا تضعي أي كلمة مرور أو رابط MongoDB أو API Key داخل GitHub أو في واجهة `ORB-WEB`.
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+```env
+# التشغيل وقاعدة البيانات
+NODE_ENV=development
+PORT=3000
+DB_URI=
+JWT_SECRET_KEY=
+JWT_EXPIRE_TIME=30d
+HASH_PASS=12
 
-3. **Environment Variables:**
-   Create a `config.env` file in the root directory and add the following:
-   ```env
-   PORT=8000
-   NODE_ENV=development
-   DB_URI=your_mongodb_uri
-   JWT_SECRET=your_jwt_secret
-   JWT_EXPIRE_TIME=90d
-   
-   # EasyKash
-   EASYKASH_API_KEY=your_key
-   
-   # Cloudinary
-   CLOUDINARY_CLOUD_NAME=name
-   CLOUDINARY_API_KEY=key
-   CLOUDINARY_API_SECRET=secret
-   
-   # Email
-   EMAIL_HOST=smtp.gmail.com
-   EMAIL_PORT=465
-   EMAIL_USER=your_email
-   EMAIL_PASS=your_app_password
-   ```
+# Origins وGoogle OAuth
+FRONTEND_URL=
+GOOGLE_CLIENT_ID=
+ANDROID_CLIENT_ID=
+ANDROID_CLIENT_ID_2=
+IOS_CLIENT_ID=
 
-4. **Run the application:**
-   ```bash
-   # Development mode
-   npm run dev
-   
-   # Production mode
-   npm start
-   ```
+# التخزين والإشعارات وغرف الدروس
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+FIREBASE_SERVICE_ACCOUNT=
+BREVO_API_KEY=
+ZEGO_APP_ID=
+ZEGO_SERVER_SECRET=
 
----
+# المدفوعات والتحويلات
+PAYMOB_API_KEY=
+PAYMOB_PAYOUTS_BASE=https://payouts.paymobsolutions.com
+PAYMOB_PAYOUTS_RECIPIENTS_PATH=/recipients
+PAYMOB_PAYOUTS_AUTH_PATH=/auth/tokens
+PAYMOB_PAYOUTS_USE_AUTH_TOKEN=false
+PAYMOB_PAYOUTS_BEARER=
+EASYKASH_SECRET=
 
-## 🛣️ API Endpoints (Quick Overview)
+# الحماية والعمليات
+ENCRYPTION_KEY=
+SUPER_ADMIN_EMAIL=
+```
 
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `POST` | `/auth/signup` | User registration |
-| `POST` | `/auth/login` | User login |
-| `GET` | `/lessons` | List available lesson requests |
-| `POST` | `/negotiations/lessons/:id/thread` | Start/Get negotiation thread |
-| `GET` | `/teachers/me/balance` | Get teacher wallet balance |
-| `POST` | `/payments` | Initiate lesson payment |
-| `GET` | `/notifications/all` | Get user notifications |
+| نوع المتغير | أين يوضع | ملاحظة أمنية |
+|---|---|---|
+| `DB_URI` و`JWT_SECRET_KEY` | خادم ORB أو Railway فقط | لا يُرسلان أبداً إلى المتصفح ولا يبدآن بـ`VITE_`. |
+| مفاتيح Cloudinary وFirebase وPaymob وBrevo وZego | خادم ORB أو Railway فقط | اعتبريها أسراراً؛ جدديها فوراً إذا ظهرت في محادثة أو commit. |
+| `GOOGLE_CLIENT_ID` | ORB وORB-WEB حسب التدفق | هو معرّف عميل عام، وليس client secret. |
+| `SUPER_ADMIN_EMAIL` | مرة واحدة أثناء الترقية | لا يمنح دوراً تلقائياً عند كل تسجيل دخول؛ استخدمي مهمة الترقية المخصصة. |
 
----
+## مسارات إدارية مهمة
 
-## 🤝 Contributing
+تتطلب المسارات الإدارية رمز JWT صالحاً في ترويسة `Authorization: Bearer <token>`. لا تعتمدي على إخفاء أزرار الواجهة للحماية؛ فالخادم هو طبقة التفويض النهائية.
 
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+| الطريقة | المسار | الصلاحية | الاستخدام |
+|---|---|---|---|
+| `GET` | `/admin/dashboard/summary` | `admin` أو `superAdmin` | مؤشرات التشغيل والطوابير المختصرة. |
+| `GET` | `/admin/teachers/pending` | `admin` أو `superAdmin` | طلبات اعتماد المدرسين. |
+| `PUT` | `/admin/teachers/verify/:id` | `admin` أو `superAdmin` | اعتماد مدرس بعد مراجعة الشهادة. |
+| `PUT` | `/admin/teachers/reject/:id` | `admin` أو `superAdmin` | رفض مدرس مع سبب. |
+| `GET` | `/completeLessons/disputedLessons` | `admin` أو `superAdmin` | حصص في `disputed` أو `under_admin_review`. |
+| `PUT` | `/completeLessons/:lessonId/adminResolve` | `admin` أو `superAdmin` | حسم حالة الحصة النهائية مع `adminNote`. |
+| `GET` | `/audit-logs` | `superAdmin` فقط | البحث في سجل التدقيق والترقيم. |
+| `POST` / `PUT` / `DELETE` | `/admin` و`/admin/:id` | `superAdmin` فقط | إدارة حسابات الأدمن. |
 
----
+## النشر على Railway
 
-## 📜 License
+أضيفي القيم السابقة من لوحة **Variables** في خدمة ORB على Railway بدلاً من إنشاء ملف أسرار في المستودع. بعد حفظ `DB_URI` جديد أو أي سر، أعيدي النشر ثم راقبي سجل الخدمة للتأكد من نجاح الاتصال. لا تعيدي استخدام رابط اتصال ظهر في محادثة عامة؛ أنشئي كلمة مرور أو مستخدم قاعدة بيانات جديداً أولاً.
 
-Distributed under the ISC License.
+## الاختبار
 
----
-Developed with ❤️ by [MennaAllahZakaria](https://github.com/MennaAllahZakaria)
+```bash
+npm test
+node --check index.js
+```
+
+يتحقق الاختبار من توافق `superAdmin` مع المسارات الإدارية القائمة وتحميل امتدادات الإدارة الأساسية. يجب إجراء القرارات المالية أو اعتماد المدرسين في بيئة اختبار أو على سجلات مخصصة للاختبار فقط.
+
+## البنية
+
+```text
+config/       اتصال MongoDB وإعدادات الخادم
+middleware/   المصادقة والتفويض والتحقق وتسجيل التدقيق
+models/       نماذج Mongoose، ومنها المستخدم والدروس والمدفوعات
+routes/       تعريفات مسارات Express
+services/     منطق الأعمال والقرارات التشغيلية
+scripts/      مهام إدارية، ومنها ترقية Super Admin
+test/         اختبارات Node
+index.js      نقطة تشغيل التطبيق
+```
+
+## مراجع
+
+[1]: https://github.com/MennaAllahZakaria/ORB/blob/main/package.json "أوامر ORB المعتمدة"
+[2]: https://github.com/MennaAllahZakaria/ORB-WEB "واجهة إدارة ORB"

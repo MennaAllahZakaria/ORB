@@ -1,7 +1,13 @@
 
 node_modules/
 
+# Local environment files — never commit actual secrets.
+.env
+.env.*
+!.env.example
 config.env
+config.env.*
+!config.env.example
 
 .vscode
 

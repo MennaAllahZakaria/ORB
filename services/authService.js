@@ -38,9 +38,9 @@ exports.signup = asyncHandler(async (req, res, next) => {
     return next(new ApiError("Email and password are required", 400));
   }
 
-  // Block direct admin signup
-  if (role === "admin") {
-    return next(new ApiError("You cannot register as admin", 400));
+  // Privileged accounts can only be provisioned by an existing superAdmin.
+  if (["admin", "superAdmin"].includes(role)) {
+    return next(new ApiError("You cannot register with a privileged role", 400));
   }
 
   // Check if user already exists

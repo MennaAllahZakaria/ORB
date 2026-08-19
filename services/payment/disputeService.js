@@ -13,13 +13,15 @@ exports.getAllDisputes = async (req, res) => {
 };
 
 exports.resolveDispute = async (req, res) => {
-  const { disputeId, decision, refundAmount } = req.body;
+  const { disputeId, decision, refundAmount, note } = req.body;
 
   const result = await handleDisputeResolution({
     disputeId,
     decision,
     refundAmount,
+    note,
     adminId: req.user._id,
+    adminRole: req.user.role,
   });
 
   // Notify Student and Teacher

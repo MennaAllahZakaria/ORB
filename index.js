@@ -7,7 +7,9 @@ const dotenv = require("dotenv");
 const path = require("path");
 const http = require("http");
 
-dotenv.config({ path: "config.env" });
+// Prefer a local .env file; keep config.env as a backwards-compatible fallback.
+dotenv.config({ path: ".env" });
+dotenv.config({ path: "config.env", override: false });
 
 const morgan = require("morgan");
 const cors = require("cors");

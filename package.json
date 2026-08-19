@@ -7,7 +7,9 @@
     "dev": "nodemon index.js",
     "start:prod": "NODE_ENV=production node index.js",
     "build": "echo 'No build step required for Node.js backend.'",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test test/*.test.js",
+    "promote:super-admin": "node scripts/promote-super-admin.js",
+    "verify:super-admin": "node scripts/verify-super-admin.js",
     "start": "node index.js"
   },
   "author": "",
