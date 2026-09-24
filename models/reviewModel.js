@@ -15,6 +15,12 @@ const reviewSchema = new mongoose.Schema(
       ref: "User",
       required: [true, "Review must belong to a student"],
     },
+    // Explicit author for per-participant review status. Legacy records
+    // without this field are treated as student-authored by the controller.
+    reviewer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
     teacher: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

@@ -1924,8 +1924,42 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
           hasReview: {
             $gt: [
               {
-                $size:
-                  "$reviews",
+                $size: {
+                  $filter: {
+                    input: "$reviews",
+                    as: "review",
+                    cond: {
+                      $or: [
+                        {
+                          $eq: [
+                            "$$review.reviewer",
+                            user._id,
+                          ],
+                        },
+                        /*
+                          Existing reviews predate the reviewer field and
+                          were authored by the student by definition.
+                        */
+                        {
+                          $and: [
+                            {
+                              $eq: [
+                                user.role,
+                                "student",
+                              ],
+                            },
+                            {
+                              $eq: [
+                                "$$review.student",
+                                user._id,
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                },
               },
               0,
             ],

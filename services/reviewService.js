@@ -90,6 +90,7 @@ exports.createReview = asyncHandler(async (req, res, next) => {
   const review = await Review.create({
     lesson: lessonId,
     student: req.user._id,
+    reviewer: req.user._id,
     teacher: lesson.acceptedTeacher,
     rating,
     comment,
