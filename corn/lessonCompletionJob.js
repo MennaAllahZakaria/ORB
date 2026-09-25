@@ -190,8 +190,9 @@ exports.runLessonCompletionJob = () => {
           */
 
           if (
-            !lesson.activeParticipants ||
-            lesson.activeParticipants.length < 2
+            lesson.meetingProvider !== "zoom" &&
+            (!lesson.activeParticipants ||
+              lesson.activeParticipants.length < 2)
           ) {
             continue;
           }

@@ -15,7 +15,7 @@ const sendEmail = require("../utils/sendEmail");
 const ApiFeatures = require("../utils/apiFeatures");
 const { sendLessonNotifications , sendInterestNotification , sendChooseTeacherNotification , cancelLessonNotification } = require("../utils/lessonNotificaionHelper");
 const {checkTeacherAvailability} = require("../utils/helpers");
-const { createLessonMeeting } = require("./zegoService");
+const { createZoomLessonMeeting } = require("./zoomService");
 const { handleRefund } = require("./payment/paymentHandleService");
 
 const { getIO } = require("../config/socket");
@@ -23,11 +23,6 @@ const { getIO } = require("../config/socket");
 // Small helper to compare ObjectIds safely
 const isSameId = (a, b) =>
   a && b && a.toString() === b.toString();
-
-const isValidZegoRoomId = (roomId) =>
-  typeof roomId === "string" && /^[A-Za-z0-9_]+$/.test(roomId);
-
-
 
 // =======================================================
 // 1️⃣ STUDENT - CREATE LESSON REQUEST
@@ -968,7 +963,7 @@ exports.chooseTeacher = asyncHandler(async (req, res, next) => {
   }
 });
 // =======================================================
-//  CREATE ZEGOCALL MEETING FOR LESSON WHEN STUDENT OR TEACHER STARTS THE LESSON
+//  CREATE ZOOM MEETING FOR LESSON WHEN STUDENT OR TEACHER STARTS THE LESSON
 // =======================================================
 
 
@@ -1000,44 +995,37 @@ exports.createMeeting = asyncHandler(async (req, res, next) => {
     }
  
     const hasReusableMeeting =
-      isValidZegoRoomId(lesson.meetingRoomId) &&
-      Boolean(lesson.zegoTokenForStudent) &&
-      Boolean(lesson.zegoTokenForTeacher);
+      lesson.meetingProvider === "zoom" &&
+      Boolean(lesson.zoomMeetingId) &&
+      Boolean(lesson.zoomJoinUrl);
 
     if (hasReusableMeeting) {
       return res.status(200).json({
         status: "success",
         data: {
+          provider: "zoom",
+          meetingId: lesson.zoomMeetingId,
           meetingRoomId: lesson.meetingRoomId,
-          tokens: {
-            student: lesson.zegoTokenForStudent,
-            teacher: lesson.zegoTokenForTeacher
-          }
+          joinUrl: lesson.zoomJoinUrl,
+          startUrl: req.user.role === "teacher" ? lesson.zoomStartUrl : null,
+          password: lesson.zoomPassword || null,
+          tokens: null,
         }
       });
     }
 
-    // Regenerate credentials for legacy meetings whose room ID does not meet
-    // ZEGOCLOUD's room-ID character requirements.
-    const {
-      meetingRoomId,
-      studentToken,
-      teacherToken
-    } = await createLessonMeeting({
-      lesson,
-      studentId: lesson.student,
-      teacherId: lesson.acceptedTeacher,
-      effectiveTimeInSeconds: (lesson.durationInMinutes * 60) + 3600  // Convert minutes to seconds and add 1 hour buffer
-    });
+    const meeting = await createZoomLessonMeeting({ lesson });
 
     return res.status(200).json({
       status: "success",
       data: {
-        meetingRoomId,
-        tokens: {
-          student: studentToken,
-          teacher: teacherToken
-        }
+        provider: meeting.provider,
+        meetingId: meeting.meetingId,
+        meetingRoomId: meeting.meetingRoomId,
+        joinUrl: meeting.joinUrl,
+        startUrl: req.user.role === "teacher" ? meeting.startUrl : null,
+        password: meeting.password,
+        tokens: null,
       }
     });
 

@@ -61,6 +61,12 @@ CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
 FIREBASE_SERVICE_ACCOUNT=
 BREVO_API_KEY=
+ZOOM_ACCOUNT_ID=
+ZOOM_CLIENT_ID=
+ZOOM_CLIENT_SECRET=
+ZOOM_USER_ID=me
+ZOOM_WEBHOOK_SECRET_TOKEN=
+ZOOM_TIMEZONE=Africa/Cairo
 ZEGO_APP_ID=
 ZEGO_SERVER_SECRET=
 
@@ -81,7 +87,7 @@ SUPER_ADMIN_EMAIL=
 | نوع المتغير | أين يوضع | ملاحظة أمنية |
 |---|---|---|
 | `DB_URI` و`JWT_SECRET_KEY` | خادم ORB أو Railway فقط | لا يُرسلان أبداً إلى المتصفح ولا يبدآن بـ`VITE_`. |
-| مفاتيح Cloudinary وFirebase وPaymob وBrevo وZego | خادم ORB أو Railway فقط | اعتبريها أسراراً؛ جدديها فوراً إذا ظهرت في محادثة أو commit. |
+| مفاتيح Cloudinary وFirebase وPaymob وBrevo وZoom وZego | خادم ORB أو Railway فقط | اعتبريها أسراراً؛ جدديها فوراً إذا ظهرت في محادثة أو commit. |
 | `GOOGLE_CLIENT_ID` | ORB وORB-WEB حسب التدفق | هو معرّف عميل عام، وليس client secret. |
 | `SUPER_ADMIN_EMAIL` | مرة واحدة أثناء الترقية | لا يمنح دوراً تلقائياً عند كل تسجيل دخول؛ استخدمي مهمة الترقية المخصصة. |
 
@@ -103,6 +109,22 @@ SUPER_ADMIN_EMAIL=
 ## النشر على Railway
 
 أضيفي القيم السابقة من لوحة **Variables** في خدمة ORB على Railway بدلاً من إنشاء ملف أسرار في المستودع. بعد حفظ `DB_URI` جديد أو أي سر، أعيدي النشر ثم راقبي سجل الخدمة للتأكد من نجاح الاتصال. لا تعيدي استخدام رابط اتصال ظهر في محادثة عامة؛ أنشئي كلمة مرور أو مستخدم قاعدة بيانات جديداً أولاً.
+
+## إعداد Zoom للحصص
+
+1. أنشئي تطبيق **Server-to-Server OAuth** في Zoom Marketplace.
+2. أضيفي صلاحية إنشاء وإدارة اجتماعات المستخدم، مثل `meeting:write:admin`، وأي صلاحيات قراءة مطلوبة حسب إعدادات حساب Zoom.
+3. ضعي `Account ID` و`Client ID` و`Client Secret` في متغيرات Railway باسم `ZOOM_ACCOUNT_ID` و`ZOOM_CLIENT_ID` و`ZOOM_CLIENT_SECRET`.
+4. اجعلي `ZOOM_USER_ID` هو مستخدم Zoom الذي سيستضيف الحصص، أو اتركيه `me` ليستخدم مالك التطبيق.
+5. أنشئي اشتراك Webhook للأحداث التالية على العنوان `https://<orb-domain>/zoom/webhook`:
+   - `meeting.started`
+   - `meeting.ended`
+   - `meeting.participant_joined`
+   - `meeting.participant_left`
+   - `endpoint.url_validation`
+6. انسخي Secret Token الخاص بالـ Webhook إلى `ZOOM_WEBHOOK_SECRET_TOKEN`، ثم أعيدي نشر الخدمة.
+
+مسار `POST /lessons/:lessonId/create-meeting` ينشئ اجتماع Zoom مرة واحدة ويعيد `joinUrl` للانضمام و`startUrl` للمدرس فقط. الحصص القديمة التي تحمل بيانات Zego تظل قابلة للتعامل معها عبر كود Zego، بينما الحصص الجديدة أو التي يُعاد إنشاء اجتماعها تستخدم Zoom.
 
 ## الاختبار
 

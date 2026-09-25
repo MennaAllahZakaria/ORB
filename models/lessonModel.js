@@ -118,9 +118,34 @@ const lessonSchema = new mongoose.Schema(
     },
 
     /* =====================
-       ZEGO MEETING
+       ONLINE MEETING
     ===================== */
+    meetingProvider: {
+      type: String,
+      enum: ["zoom", "zego"],
+      default: null,
+    },
     meetingRoomId: {
+      type: String,
+      default: null,
+    },
+
+    zoomMeetingId: {
+      type: String,
+      default: null,
+    },
+
+    zoomJoinUrl: {
+      type: String,
+      default: null,
+    },
+
+    zoomStartUrl: {
+      type: String,
+      default: null,
+    },
+
+    zoomPassword: {
       type: String,
       default: null,
     },
