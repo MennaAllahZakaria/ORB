@@ -13,6 +13,9 @@ const {
   handleLessonCompletion
 } = require("./payment/paymentHandleService");
 
+const isSameId = (left, right) =>
+  left && right && left.toString() === right.toString();
+
 
 exports.submitCompletion = asyncHandler(async (req, res, next) => {
   const { lessonId } = req.params;
