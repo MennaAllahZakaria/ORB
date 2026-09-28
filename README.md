@@ -113,7 +113,7 @@ SUPER_ADMIN_EMAIL=
 ## إعداد Zoom للحصص
 
 1. أنشئي تطبيق **Server-to-Server OAuth** في Zoom Marketplace.
-2. أضيفي صلاحية إنشاء وإدارة اجتماعات المستخدم، مثل `meeting:write:admin`، وأي صلاحيات قراءة مطلوبة حسب إعدادات حساب Zoom.
+2. أضيفي Scope إنشاء الاجتماع الحالي: `meeting:write:meeting`، أو `meeting:write:meeting:admin` إذا كان التطبيق يستخدم صلاحيات Admin على حساب Zoom، وأضيفي أي صلاحيات Webhook يقترحها Zoom تلقائيًا.
 3. ضعي `Account ID` و`Client ID` و`Client Secret` في متغيرات Railway باسم `ZOOM_ACCOUNT_ID` و`ZOOM_CLIENT_ID` و`ZOOM_CLIENT_SECRET`.
 4. اجعلي `ZOOM_USER_ID` هو مستخدم Zoom الذي سيستضيف الحصص، أو اتركيه `me` ليستخدم مالك التطبيق.
 5. أنشئي اشتراك Webhook للأحداث التالية على العنوان `https://<orb-domain>/zoom/webhook`:
