@@ -1301,6 +1301,18 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
         }
       },
 
+      /* Keep reported problems visible until they are resolved. */
+      {
+        status: "problem",
+        reviewStatus: {
+          $in: [
+            "waiting_second_party",
+            "disputed",
+            "under_admin_review"
+          ]
+        }
+      },
+
       /* Teacher cancelled */
       {
         status: "canceled",
@@ -1341,6 +1353,19 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
             "unpaid",
             "pending",
             "paid"
+          ]
+        }
+      },
+
+      /* Keep reported problems visible to the assigned teacher. */
+      {
+        status: "problem",
+        acceptedTeacher: user._id,
+        reviewStatus: {
+          $in: [
+            "waiting_second_party",
+            "disputed",
+            "under_admin_review"
           ]
         }
       }
@@ -1506,12 +1531,27 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
 
     {
       $match: {
-        $expr: {
-          $gt: [
-            "$expireAt",
-            new Date()
-          ]
-        }
+        $or: [
+          /* A reported problem remains actionable after the lesson time. */
+          {
+            status: "problem",
+            reviewStatus: {
+              $in: [
+                "waiting_second_party",
+                "disputed",
+                "under_admin_review"
+              ]
+            }
+          },
+          {
+            $expr: {
+              $gt: [
+                "$expireAt",
+                new Date()
+              ]
+            }
+          }
+        ]
       }
     },
 

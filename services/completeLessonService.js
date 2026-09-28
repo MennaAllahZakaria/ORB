@@ -2473,7 +2473,7 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
 
     if (from || to) {
 
-      const createdAtFilter = {};
+      const requestedDateFilter = {};
 
 
       if (from) {
@@ -2494,7 +2494,7 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
           );
         }
 
-        createdAtFilter.$gte =
+        requestedDateFilter.$gte =
           fromDate;
       }
 
@@ -2534,13 +2534,14 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
           );
         }
 
-        createdAtFilter.$lte =
+        requestedDateFilter.$lte =
           toDate;
       }
 
 
-      match.createdAt =
-        createdAtFilter;
+      /* Filter by the scheduled lesson date, not when the report was created. */
+      match.requestedDate =
+        requestedDateFilter;
     }
 
 
