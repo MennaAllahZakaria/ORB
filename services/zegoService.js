@@ -336,6 +336,7 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
 
             freshLesson.meetingEndTime = now;
             freshLesson.meetingStatus = "finished";
+            freshLesson.sessionVerified = true;
 
             // Keep the legacy frontend contract: an ended meeting is listed
             // as completed until a party reports a problem during review.

@@ -298,6 +298,7 @@ exports.runLessonCompletionJob = () => {
           currentLesson.meetingEndTime = now;
 
           currentLesson.meetingStatus = "finished";
+          currentLesson.sessionVerified = true;
 
           /*
             Keep:

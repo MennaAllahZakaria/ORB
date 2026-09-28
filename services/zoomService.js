@@ -331,6 +331,7 @@ async function handleZoomEvent(payload = {}) {
           : lesson.requestedDate;
       }
       lesson.meetingEndTime = eventDate;
+      lesson.sessionVerified = true;
 
       // A delayed webhook must not erase a problem/dispute that a participant
       // already reported while the meeting was ending.
