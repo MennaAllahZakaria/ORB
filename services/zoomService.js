@@ -18,6 +18,7 @@ const ZOOM_CLIENT_ID = envValue("ZOOM_CLIENT_ID");
 const ZOOM_CLIENT_SECRET = envValue("ZOOM_CLIENT_SECRET");
 const ZOOM_USER_ID = envValue("ZOOM_USER_ID", "me") || "me";
 const ZOOM_WEBHOOK_SECRET_TOKEN = envValue("ZOOM_WEBHOOK_SECRET_TOKEN");
+const ZOOM_TIMEZONE = envValue("ZOOM_TIMEZONE", "Africa/Cairo") || "Africa/Cairo";
 
 let accessTokenCache = null;
 
@@ -141,9 +142,12 @@ function getScheduledStartTime(lesson) {
 
   if (Number.isNaN(requestedDate.getTime())) return now;
 
-  // Zoom does not accept a scheduled start in the past. Urgent lessons can
-  // still be created immediately without changing the lesson's own schedule.
-  return requestedDate > now ? requestedDate : now;
+  // Zoom may reject a scheduled meeting whose start is already past or equal
+  // to the API request time. Keep urgent lessons joinable immediately while
+  // scheduling the Zoom record a small amount into the future.
+  return requestedDate > now
+    ? requestedDate
+    : new Date(now.getTime() + 2 * 60 * 1000);
 }
 
 async function createZoomLessonMeeting({ lesson }) {
@@ -155,7 +159,7 @@ async function createZoomLessonMeeting({ lesson }) {
       type: 2,
       start_time: getScheduledStartTime(lesson).toISOString(),
       duration: Math.max(1, Number(lesson.durationInMinutes || 60)),
-      timezone: process.env.ZOOM_TIMEZONE || "Africa/Cairo",
+      timezone: ZOOM_TIMEZONE,
       password: crypto.randomBytes(6).toString("hex"),
       settings: {
         waiting_room: false,
