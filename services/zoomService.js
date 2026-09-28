@@ -1,6 +1,7 @@
 const asyncHandler = require("express-async-handler");
 const axios = require("axios");
 const crypto = require("crypto");
+const ApiError = require("../utils/apiError");
 
 const Lesson = require("../models/lessonModel");
 const Notification = require("../models/notificationModel");
@@ -9,11 +10,14 @@ const admin = require("../fireBase/admin");
 
 const ZOOM_TOKEN_URL = "https://zoom.us/oauth/token";
 const ZOOM_API_BASE = "https://api.zoom.us/v2";
-const ZOOM_ACCOUNT_ID = process.env.ZOOM_ACCOUNT_ID;
-const ZOOM_CLIENT_ID = process.env.ZOOM_CLIENT_ID;
-const ZOOM_CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET;
-const ZOOM_USER_ID = process.env.ZOOM_USER_ID || "me";
-const ZOOM_WEBHOOK_SECRET_TOKEN = process.env.ZOOM_WEBHOOK_SECRET_TOKEN;
+const envValue = (name, fallback = "") =>
+  String(process.env[name] ?? fallback).trim();
+
+const ZOOM_ACCOUNT_ID = envValue("ZOOM_ACCOUNT_ID");
+const ZOOM_CLIENT_ID = envValue("ZOOM_CLIENT_ID");
+const ZOOM_CLIENT_SECRET = envValue("ZOOM_CLIENT_SECRET");
+const ZOOM_USER_ID = envValue("ZOOM_USER_ID", "me") || "me";
+const ZOOM_WEBHOOK_SECRET_TOKEN = envValue("ZOOM_WEBHOOK_SECRET_TOKEN");
 
 let accessTokenCache = null;
 
@@ -26,9 +30,30 @@ const isConfigured = () =>
   );
 
 const zoomConfigError = () =>
-  new Error(
-    "Zoom is not configured. Set ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET and ZOOM_USER_ID."
+  new ApiError(
+    "Zoom is not configured. Set ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET and ZOOM_USER_ID.",
+    503
   );
+
+function getZoomError(error, operation) {
+  const status = error.response?.status;
+  const body = error.response?.data || {};
+  const zoomMessage = body.message || body.error || error.message;
+  const zoomCode = body.code || body.error_code || "unknown";
+  const requestId = body.request_id || body.requestId || "unknown";
+
+  console.error(`[Zoom] ${operation} failed`, {
+    status,
+    code: zoomCode,
+    message: zoomMessage,
+    requestId,
+  });
+
+  return new ApiError(
+    `Zoom ${operation} failed: ${zoomMessage} (code: ${zoomCode})`,
+    status && status >= 400 && status < 500 ? 502 : 503
+  );
+}
 
 async function getZoomAccessToken() {
   if (!isConfigured()) throw zoomConfigError();
@@ -44,27 +69,32 @@ async function getZoomAccessToken() {
     `${ZOOM_CLIENT_ID}:${ZOOM_CLIENT_SECRET}`
   ).toString("base64");
 
-  const response = await axios.post(
-    ZOOM_TOKEN_URL,
-    new URLSearchParams({
-      grant_type: "account_credentials",
-      account_id: ZOOM_ACCOUNT_ID,
-    }).toString(),
-    {
-      headers: {
-        Authorization: `Basic ${basicCredentials}`,
-        "Content-Type": "application/x-www-form-urlencoded",
+  try {
+    const response = await axios.post(
+      ZOOM_TOKEN_URL,
+      new URLSearchParams({
+        grant_type: "account_credentials",
+        account_id: ZOOM_ACCOUNT_ID,
+      }).toString(),
+      {
+        headers: {
+          Authorization: `Basic ${basicCredentials}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        timeout: 15000,
       },
-      timeout: 15000,
-    }
-  );
+    );
 
-  accessTokenCache = {
-    value: response.data.access_token,
-    expiresAt: Date.now() + Number(response.data.expires_in || 3600) * 1000,
-  };
+    accessTokenCache = {
+      value: response.data.access_token,
+      expiresAt: Date.now() + Number(response.data.expires_in || 3600) * 1000,
+    };
 
-  return accessTokenCache.value;
+    return accessTokenCache.value;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw getZoomError(error, "authentication");
+  }
 }
 
 async function zoomRequest(config) {
@@ -85,25 +115,31 @@ async function zoomRequest(config) {
     if (error.response?.status === 401) {
       accessTokenCache = null;
       const retryToken = await getZoomAccessToken();
-      return axios({
-        ...config,
-        baseURL: ZOOM_API_BASE,
-        headers: {
-          Authorization: `Bearer ${retryToken}`,
-          "Content-Type": "application/json",
-          ...(config.headers || {}),
-        },
-        timeout: 20000,
-      });
+      try {
+        return await axios({
+          ...config,
+          baseURL: ZOOM_API_BASE,
+          headers: {
+            Authorization: `Bearer ${retryToken}`,
+            "Content-Type": "application/json",
+            ...(config.headers || {}),
+          },
+          timeout: 20000,
+        });
+      } catch (retryError) {
+        throw getZoomError(retryError, "API request after token refresh");
+      }
     }
 
-    throw error;
+    throw getZoomError(error, "API request");
   }
 }
 
 function getScheduledStartTime(lesson) {
   const requestedDate = new Date(lesson.requestedDate);
   const now = new Date();
+
+  if (Number.isNaN(requestedDate.getTime())) return now;
 
   // Zoom does not accept a scheduled start in the past. Urgent lessons can
   // still be created immediately without changing the lesson's own schedule.
@@ -133,6 +169,14 @@ async function createZoomLessonMeeting({ lesson }) {
   });
 
   const meeting = response.data;
+
+  if (!meeting?.id || !meeting?.join_url) {
+    console.error("[Zoom] Create meeting returned an incomplete response", {
+      hasId: Boolean(meeting?.id),
+      hasJoinUrl: Boolean(meeting?.join_url),
+    });
+    throw new ApiError("Zoom returned an incomplete meeting response", 502);
+  }
 
   lesson.meetingProvider = "zoom";
   lesson.zoomMeetingId = String(meeting.id);
