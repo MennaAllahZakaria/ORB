@@ -47,6 +47,7 @@ function getZoomError(error, operation) {
     status,
     code: zoomCode,
     message: zoomMessage,
+    errors: body.errors || body.error_details || undefined,
     requestId,
   });
 
@@ -160,7 +161,8 @@ async function createZoomLessonMeeting({ lesson }) {
       start_time: getScheduledStartTime(lesson).toISOString(),
       duration: Math.max(1, Number(lesson.durationInMinutes || 60)),
       timezone: ZOOM_TIMEZONE,
-      password: crypto.randomBytes(6).toString("hex"),
+      // Zoom meeting passwords must be 6-10 characters.
+      password: crypto.randomBytes(5).toString("hex"),
       settings: {
         waiting_room: false,
         join_before_host: false,
