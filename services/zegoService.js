@@ -321,7 +321,15 @@ exports.zegoCallback = asyncHandler(async (req, res) => {
           const shouldEnd =
             isEmpty &&
             freshLesson.meetingStartTime &&
-            freshLesson.meetingStatus !== "finished";
+            freshLesson.meetingStatus !== "finished" &&
+            freshLesson.status !== "problem" &&
+            freshLesson.finalCompletionStatus !== "incomplete" &&
+            freshLesson.disputeFlag !== true &&
+            ![
+              "disputed",
+              "under_admin_review",
+              "resolved_by_admin",
+            ].includes(freshLesson.reviewStatus);
 
           if (shouldEnd) {
             console.log("[Zego] Ending lesson and awaiting both completion responses");

@@ -1130,7 +1130,15 @@ exports.getLessons = asyncHandler(async (req, res, next) => {
     .paginate(lessonsCount);
 
   const { mongooseQuery, paginationResult } = apiFeatures;
-  const lessons = await mongooseQuery;
+  const lessons = await mongooseQuery.lean();
+  // Meeting credentials are returned only by create-meeting. Never expose
+  // the Zoom host URL, password, or legacy Zego tokens in list responses.
+  for (const lesson of lessons) {
+    delete lesson.zoomStartUrl;
+    delete lesson.zoomPassword;
+    delete lesson.zegoTokenForStudent;
+    delete lesson.zegoTokenForTeacher;
+  }
 
   res.status(200).json({
     status: "success",

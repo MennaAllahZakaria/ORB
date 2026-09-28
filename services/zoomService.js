@@ -281,7 +281,26 @@ async function handleZoomEvent(payload = {}) {
 
     case "meeting.ended":
       lesson.meetingStatus = "finished";
+      if (!lesson.meetingStartTime) {
+        lesson.meetingStartTime = eventObject.start_time
+          ? new Date(eventObject.start_time)
+          : lesson.requestedDate;
+      }
       lesson.meetingEndTime = eventDate;
+
+      // A delayed webhook must not erase a problem/dispute that a participant
+      // already reported while the meeting was ending.
+      if (
+        lesson.status === "problem" ||
+        lesson.finalCompletionStatus === "incomplete" ||
+        lesson.disputeFlag === true ||
+        ["disputed", "under_admin_review", "resolved_by_admin"].includes(
+          lesson.reviewStatus
+        )
+      ) {
+        break;
+      }
+
       lesson.finalCompletionStatus = "completed";
       lesson.reviewStatus = "waiting_second_party";
       lesson.disputeFlag = false;
