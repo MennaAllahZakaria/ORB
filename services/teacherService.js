@@ -229,7 +229,15 @@ exports.getTeacherBalance = asyncHandler(async (req, res, next) => {
   const teacherId = req.user._id;
 
   const balanceAgg = await Ledger.aggregate([
-    { $match: { userId: teacherId, status: "confirmed" } },
+    {
+      $match: {
+        userId: teacherId,
+        $or: [
+          { status: "confirmed" },
+          { status: "pending", source: "withdraw", type: "debit" },
+        ],
+      },
+    },
     {
       $group: {
         _id: null,

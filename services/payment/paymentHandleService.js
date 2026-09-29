@@ -536,8 +536,33 @@ exports.handlePayout = async ({ teacherId, amount, method, details }) => {
   session.startTransaction();
 
   try {
+    const normalizedAmount = Number(amount);
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+      throw new Error("Payout amount must be greater than zero");
+    }
+    if (!["wallet", "bank"].includes(method)) {
+      throw new Error("Invalid payout method");
+    }
+
+    // Serialize payout requests for the same teacher. This prevents two
+    // concurrent requests from spending the same confirmed balance.
+    const teacher = await User.findOneAndUpdate(
+      { _id: teacherId, role: "teacher", status: "active" },
+      { $inc: { payoutLockVersion: 1 } },
+      { new: true, session }
+    );
+    if (!teacher) throw new Error("Teacher account is not active");
+
     const balanceAgg = await Ledger.aggregate([
-      { $match: { userId: teacherId, status: "confirmed" } },
+      {
+        $match: {
+          userId: teacherId,
+          $or: [
+            { status: "confirmed" },
+            { status: "pending", source: "withdraw", type: "debit" },
+          ],
+        },
+      },
       {
         $group: {
           _id: null,
@@ -556,11 +581,11 @@ exports.handlePayout = async ({ teacherId, amount, method, details }) => {
 
     const balance = balanceAgg[0]?.balance || 0;
 
-    if (amount > balance) throw new Error("Insufficient balance");
+    if (normalizedAmount > balance) throw new Error("Insufficient balance");
 
     const payout = await Payout.create([{
       teacherId,
-      amount,
+      amount: normalizedAmount,
       method,
       details,
       status: "pending",

@@ -167,6 +167,14 @@ const userSchema = new mongoose.Schema(
       enum: ["active", "inactive", "banned"],
     },
 
+    // Incremented inside payout transactions to serialize withdrawals for
+    // the same teacher and prevent double-spending the available balance.
+    payoutLockVersion: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
+
     imageProfile: {
       type: String,
       default: null,

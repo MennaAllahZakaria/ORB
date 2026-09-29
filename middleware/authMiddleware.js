@@ -32,6 +32,12 @@ exports.protect = asyncHandler(async (req, res, next) => {
     if (!currentUser) {
         return next(new ApiError("The user belonging to this token no longer exists.", 401));
     }
+    if (currentUser.status === "banned") {
+        return next(new ApiError("Your account has been banned", 403));
+    }
+    if (currentUser.status === "inactive") {
+        return next(new ApiError("Your account is inactive", 403));
+    }
     if (currentUser.passwordChangedAt) {
         const passwordChangedTimestamp = parseInt(currentUser.passwordChangedAt.getTime() / 1000, 10);  
 

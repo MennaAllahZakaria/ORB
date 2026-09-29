@@ -216,15 +216,24 @@ exports.updateStatusUser = asyncHandler(async (req, res, next) => {
     return next(new ApiError("Invalid status value", 400));
   }
 
-  const user = await User.findByIdAndUpdate(
-    id,
-    { status },
-    { new: true }
-  );
+  const user = await User.findById(id);
 
   if (!user) {
     return next(new ApiError("User not found", 404));
   }
+
+  if (user._id.toString() === req.user._id.toString()) {
+    return next(new ApiError("You cannot change your own account status", 403));
+  }
+  if (
+    ["admin", "superAdmin"].includes(user.role) &&
+    req.user.role !== "superAdmin"
+  ) {
+    return next(new ApiError("Only superAdmin can change an admin status", 403));
+  }
+
+  user.status = status;
+  await user.save();
 
   res.status(200).json({
     status: "success",

@@ -10,6 +10,7 @@ const payoutSchema = new mongoose.Schema({
   amount: {
     type: Number,
     required: true,
+    min: [0.01, "Payout amount must be greater than zero"],
   },
 
   method: {
