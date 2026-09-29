@@ -98,6 +98,8 @@ SUPER_ADMIN_EMAIL=
 | الطريقة | المسار | الصلاحية | الاستخدام |
 |---|---|---|---|
 | `GET` | `/admin/dashboard/summary` | `admin` أو `superAdmin` | مؤشرات التشغيل والطوابير المختصرة. |
+| `GET` | `/admin/account-reactivation-requests?status=pending` | `admin` أو `superAdmin` | عرض طلبات إعادة تفعيل الحسابات المعلقة. |
+| `PATCH` | `/admin/account-reactivation-requests/:id/resolve` | `admin` أو `superAdmin` | حسم الطلب عبر `{ "decision": "approved" أو "rejected", "adminNote": "..." }`. الموافقة تغيّر حالة المستخدم إلى `active`. |
 | `GET` | `/admin/teachers/pending` | `admin` أو `superAdmin` | طلبات اعتماد المدرسين. |
 | `PUT` | `/admin/teachers/verify/:id` | `admin` أو `superAdmin` | اعتماد مدرس بعد مراجعة الشهادة. |
 | `PUT` | `/admin/teachers/reject/:id` | `admin` أو `superAdmin` | رفض مدرس مع سبب. |
@@ -105,6 +107,22 @@ SUPER_ADMIN_EMAIL=
 | `PUT` | `/completeLessons/:lessonId/adminResolve` | `admin` أو `superAdmin` | حسم حالة الحصة النهائية مع `adminNote`. |
 | `GET` | `/audit-logs` | `superAdmin` فقط | البحث في سجل التدقيق والترقيم. |
 | `POST` / `PUT` / `DELETE` | `/admin` و`/admin/:id` | `superAdmin` فقط | إدارة حسابات الأدمن. |
+
+### طلب إعادة تفعيل حساب مستخدم
+
+الحساب الذي حالته `inactive` أو `banned` لا يستطيع تسجيل الدخول، لذلك endpoint الطلب عام ولا يحتاج JWT:
+
+```http
+POST /auth/reactivation-request
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "reason": "أرغب في إعادة استخدام الحساب وأتعهد بالالتزام بسياسات المنصة."
+}
+```
+
+الرد لا يكشف ما إذا كان البريد موجوداً لتقليل تسريب بيانات الحساب. يظهر الطلب للأدمن في قسم **طلبات إعادة التفعيل** داخل ORB-ADMIN، ويمكنه الموافقة أو الرفض مع ملاحظة.
 
 ## النشر على Railway
 

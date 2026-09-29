@@ -15,7 +15,8 @@ const {
     updateProfile,
     googleLogin,
     completeProfile,
-    setPassword
+    setPassword,
+    requestAccountReactivation
 } = require("../services/authService");
 
 const {
@@ -90,5 +91,8 @@ router.patch("/updateProfile", protect,  updateProfile);
 router.post("/google-login", googleLogin);
 router.post("/complete-profile", protect, completeProfile);
 router.put("/set-password", protect, setPassword);
+
+// 📌 Reactivation request (public: inactive/banned users cannot login)
+router.post("/reactivation-request", forgotPasswordLimiter, requestAccountReactivation);
 
 module.exports = router;

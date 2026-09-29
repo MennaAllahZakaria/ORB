@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const User = require("../models/userModel");
 const Payout = require("../models/payment/payoutModel");
+const AccountReactivationRequest = require("../models/accountReactivationRequestModel");
 
 test("user schema accepts superAdmin without requiring student or teacher profiles", () => {
   const user = new User({
@@ -45,4 +46,24 @@ test("payout schema rejects non-positive amounts", () => {
   });
 
   assert.ok(payout.validateSync().errors.amount);
+});
+
+test("reactivation request schema requires a supported account status and reason", () => {
+  const request = new AccountReactivationRequest({
+    user: "507f1f77bcf86cd799439011",
+    email: "inactive@example.test",
+    reason: "I would like to use my account again.",
+    requestedStatus: "inactive",
+  });
+
+  assert.equal(request.validateSync(), undefined);
+  assert.equal(request.status, "pending");
+
+  const invalid = new AccountReactivationRequest({
+    user: "507f1f77bcf86cd799439011",
+    email: "inactive@example.test",
+    reason: "short",
+    requestedStatus: "active",
+  });
+  assert.ok(invalid.validateSync().errors.requestedStatus);
 });

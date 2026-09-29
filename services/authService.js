@@ -3,6 +3,7 @@ const asyncHandler = require("express-async-handler");
 
 const User = require("../models/userModel");
 const Verification = require("../models/verificationModel");
+const AccountReactivationRequest = require("../models/accountReactivationRequestModel");
 const sendEmail = require("../utils/sendEmail");
 const ApiError = require("../utils/apiError");
 const createToken = require("../utils/createToken"); // JWT
@@ -756,5 +757,49 @@ exports.setPassword = asyncHandler(async (req, res, next) => {
   res.status(200).json({
     status: "success",
     message: "Password set successfully. You can now login with email and password.",
+  });
+});
+
+// ==================== ACCOUNT REACTIVATION REQUEST ====================
+// @route   POST /auth/reactivation-request
+// @access  Public (required because inactive/banned users cannot login)
+exports.requestAccountReactivation = asyncHandler(async (req, res, next) => {
+  const email = typeof req.body.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  const reason = typeof req.body.reason === "string" ? req.body.reason.trim() : "";
+
+  if (!email || !reason) {
+    return next(new ApiError("Email and reason are required", 400));
+  }
+  if (reason.length < 10) {
+    return next(new ApiError("Reason must be at least 10 characters", 400));
+  }
+
+  const user = await User.findOne({ email });
+
+  // Do not reveal whether an email belongs to an account.
+  if (!user || !["inactive", "banned"].includes(user.status) || ["admin", "superAdmin"].includes(user.role)) {
+    return res.status(202).json({
+      status: "success",
+      message: "If the account is eligible, the reactivation request will be reviewed by the administration.",
+    });
+  }
+
+  const existingRequest = await AccountReactivationRequest.findOne({
+    user: user._id,
+    status: "pending",
+  });
+
+  if (!existingRequest) {
+    await AccountReactivationRequest.create({
+      user: user._id,
+      email: user.email,
+      reason,
+      requestedStatus: user.status,
+    });
+  }
+
+  return res.status(202).json({
+    status: "success",
+    message: "If the account is eligible, the reactivation request will be reviewed by the administration.",
   });
 });

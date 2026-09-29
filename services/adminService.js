@@ -10,6 +10,8 @@ const { generateStrongPassword } = require("../utils/generatePassword");
 const Dispute = require("../models/payment/disputeModel");
 const Payout = require("../models/payment/payoutModel");
 const Support = require("../models/supportModel");
+const AccountReactivationRequest = require("../models/accountReactivationRequestModel");
+const mongoose = require("mongoose");
 const { writeAuditLog } = require("./auditService");
 
 // Helper: get salt rounds from env (used for password hashing)
@@ -254,7 +256,7 @@ exports.updateStatusUser = asyncHandler(async (req, res, next) => {
  */
 exports.getAllTeachers = asyncHandler(async (req, res, next) => {
   const teachers = await User.find({ role: "teacher" }).select(
-    "firstName lastName email phone teacherProfile imageProfile"
+    "firstName lastName email phone status teacherProfile imageProfile"
   );
 
   res.status(200).json({
@@ -419,7 +421,7 @@ exports.rejectTeacher = asyncHandler(async (req, res, next) => {
  */
 exports.getAllStudents = asyncHandler(async (req, res, next) => {
   const students = await User.find({ role: "student" }).select(
-    "firstName lastName email phone studentProfile imageProfile"
+    "firstName lastName email phone status studentProfile imageProfile"
   );
 
   res.status(200).json({
@@ -507,4 +509,96 @@ exports.getLessonsWithIssues = asyncHandler(async (req, res, next) => {
     results: lessons.length,
     data: lessons,
   });
+});
+
+
+/**
+ * ================================
+ * ACCOUNT REACTIVATION REQUESTS
+ * ================================
+ */
+exports.getAccountReactivationRequests = asyncHandler(async (req, res) => {
+  const page = Math.max(parseInt(req.query.page) || 1, 1);
+  const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+  const allowedStatuses = ["pending", "approved", "rejected"];
+  const status = allowedStatuses.includes(req.query.status) ? req.query.status : "pending";
+  const filter = { status };
+
+  const [requests, total] = await Promise.all([
+    AccountReactivationRequest.find(filter)
+      .populate("user", "firstName lastName email role status")
+      .populate("reviewedBy", "firstName lastName email")
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+    AccountReactivationRequest.countDocuments(filter),
+  ]);
+
+  res.status(200).json({
+    status: "success",
+    data: requests,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  });
+});
+
+exports.resolveAccountReactivationRequest = asyncHandler(async (req, res, next) => {
+  const { decision, adminNote = "" } = req.body;
+  if (!["approved", "rejected"].includes(decision)) {
+    return next(new ApiError("Decision must be approved or rejected", 400));
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const request = await AccountReactivationRequest.findOne({
+      _id: req.params.id,
+      status: "pending",
+    }).session(session);
+
+    if (!request) {
+      await session.abortTransaction();
+      return next(new ApiError("Pending reactivation request not found", 404));
+    }
+
+    const user = await User.findById(request.user).session(session);
+    if (!user) {
+      await session.abortTransaction();
+      return next(new ApiError("User belonging to this request no longer exists", 404));
+    }
+
+    const before = { requestStatus: request.status, userStatus: user.status };
+    request.status = decision;
+    request.reviewedBy = req.user._id;
+    request.reviewedAt = new Date();
+    request.adminNote = typeof adminNote === "string" ? adminNote.trim().slice(0, 2000) : "";
+    await request.save({ session });
+
+    if (decision === "approved") {
+      user.status = "active";
+      await user.save({ session });
+    }
+
+    await session.commitTransaction();
+
+    await writeAuditLog({
+      req,
+      action: `account_reactivation.${decision}`,
+      entityType: "AccountReactivationRequest",
+      entityId: request._id,
+      before,
+      after: { requestStatus: request.status, userStatus: user.status, adminNote: request.adminNote },
+    });
+
+    return res.status(200).json({
+      status: "success",
+      message: decision === "approved" ? "Account reactivated successfully" : "Reactivation request rejected",
+      data: request,
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    await session.endSession();
+  }
 });

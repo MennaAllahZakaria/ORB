@@ -18,6 +18,8 @@ const {
     getStudent,
     deleteStudent,
     getLessonsWithIssues,
+    getAccountReactivationRequests,
+    resolveAccountReactivationRequest,
 } = require("../services/adminService");
 const { getDashboardSummary } = require("../services/adminDashboardService");
 
@@ -40,15 +42,17 @@ router.use(protect, allowedTo("admin", "superAdmin"));
 router.post("/", allowedTo("superAdmin"), createAdminValidator, createAdmin);
 // 📌 Get all admins
 router.get("/", getAllAdmins);
-// 📌 Get specific admin by id
-router.get("/:id", idValidator, getAdmin);
-// 📌 Delete admin
-router.delete("/:id", allowedTo("superAdmin"), idValidator, auditOnSuccess({ action: "admin.deleted", entityType: "User" }), deleteAdmin);
-// 📌 Update admin
-router.put("/:id", allowedTo("superAdmin"), updateAdminValidator, auditOnSuccess({ action: "admin.updated", entityType: "User" }), updateAdmin);
 
 // 📌 Summary dashboard (must remain before generic resource routes)
 router.get("/dashboard/summary", getDashboardSummary);
+
+// ================= ACCOUNT REACTIVATION =================
+router.get("/account-reactivation-requests", getAccountReactivationRequests);
+router.patch(
+    "/account-reactivation-requests/:id/resolve",
+    auditOnSuccess({ action: "account_reactivation.resolved", entityType: "AccountReactivationRequest" }),
+    resolveAccountReactivationRequest
+);
 
 //=======================User Management=========================
 // 📌 Get  user
@@ -83,4 +87,10 @@ router.delete("/students/:id", idValidator, auditOnSuccess({ action: "student.de
 //=======================Lessons with Issues=========================
 // 📌 Get lessons with issues
 router.get("/lessons/issues", getLessonsWithIssues);
+
+// Generic admin resource routes must remain after all named routes above.
+// Otherwise paths such as /dashboard/summary are incorrectly treated as an :id.
+router.get("/:id", idValidator, getAdmin);
+router.delete("/:id", allowedTo("superAdmin"), idValidator, auditOnSuccess({ action: "admin.deleted", entityType: "User" }), deleteAdmin);
+router.put("/:id", allowedTo("superAdmin"), updateAdminValidator, auditOnSuccess({ action: "admin.updated", entityType: "User" }), updateAdmin);
 module.exports = router;

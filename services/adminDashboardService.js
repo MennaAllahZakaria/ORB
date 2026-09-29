@@ -4,6 +4,7 @@ const Lesson = require("../models/lessonModel");
 const Dispute = require("../models/payment/disputeModel");
 const Payout = require("../models/payment/payoutModel");
 const Support = require("../models/supportModel");
+const AccountReactivationRequest = require("../models/accountReactivationRequestModel");
 
 exports.getDashboardSummary = asyncHandler(async (req, res) => {
   const issueFilter = {
@@ -15,7 +16,7 @@ exports.getDashboardSummary = asyncHandler(async (req, res) => {
     ],
   };
 
-  const [pendingTeachers, teacherTotal, studentTotal, lessonIssues, openDisputes, pendingPayouts, openSupportTickets, recentTeachers, recentDisputes, recentPayouts] = await Promise.all([
+  const [pendingTeachers, teacherTotal, studentTotal, lessonIssues, openDisputes, pendingPayouts, openSupportTickets, pendingReactivationRequests, recentTeachers, recentDisputes, recentPayouts] = await Promise.all([
     User.countDocuments({ role: "teacher", "teacherProfile.verificationStatus": "pending" }),
     User.countDocuments({ role: "teacher" }),
     User.countDocuments({ role: "student" }),
@@ -23,6 +24,7 @@ exports.getDashboardSummary = asyncHandler(async (req, res) => {
     Dispute.countDocuments({ status: { $in: ["open", "under_review"] } }),
     Payout.countDocuments({ status: { $ne: "completed" } }),
     Support.countDocuments({ status: { $ne: "closed" } }),
+    AccountReactivationRequest.countDocuments({ status: "pending" }),
     User.find({ role: "teacher", "teacherProfile.verificationStatus": "pending" }).select("firstName lastName email teacherProfile.verificationStatus createdAt").sort({ createdAt: -1 }).limit(5),
     Dispute.find({ status: { $in: ["open", "under_review"] } }).select("lessonId reason status createdAt").sort({ createdAt: -1 }).limit(5),
     Payout.find({ status: { $ne: "completed" } }).select("teacherId amount method status createdAt").sort({ createdAt: -1 }).limit(5),
@@ -32,7 +34,7 @@ exports.getDashboardSummary = asyncHandler(async (req, res) => {
     status: "success",
     data: {
       generatedAt: new Date(),
-      counts: { pendingTeachers, teacherTotal, studentTotal, lessonIssues, openDisputes, pendingPayouts, openSupportTickets },
+      counts: { pendingTeachers, teacherTotal, studentTotal, lessonIssues, openDisputes, pendingPayouts, openSupportTickets, pendingReactivationRequests },
       queues: { pendingTeachers: recentTeachers, openDisputes: recentDisputes, pendingPayouts: recentPayouts },
     },
   });
