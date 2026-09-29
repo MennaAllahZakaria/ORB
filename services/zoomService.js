@@ -164,8 +164,11 @@ async function createZoomLessonMeeting({ lesson }) {
       // Zoom meeting passwords must be 6-10 characters.
       password: crypto.randomBytes(5).toString("hex"),
       settings: {
+        // Neither the student nor the teacher is responsible for hosting the
+        // lesson. Allow both participants to enter without the Zoom account
+        // owner joining or approving them first.
         waiting_room: false,
-        join_before_host: false,
+        join_before_host: true,
         mute_upon_entry: true,
         participant_video: true,
         host_video: true,
@@ -206,6 +209,21 @@ async function createZoomLessonMeeting({ lesson }) {
     startUrl: meeting.start_url,
     password: meeting.password || null,
   };
+}
+
+async function allowLessonParticipantsBeforeHost(meetingId) {
+  if (!meetingId) return;
+
+  await zoomRequest({
+    method: "patch",
+    url: `/meetings/${encodeURIComponent(meetingId)}`,
+    data: {
+      settings: {
+        waiting_room: false,
+        join_before_host: true,
+      },
+    },
+  });
 }
 
 function getMeetingId(payload = {}) {
@@ -400,6 +418,7 @@ function validateWebhookRequest(req) {
 }
 
 exports.createZoomLessonMeeting = createZoomLessonMeeting;
+exports.allowLessonParticipantsBeforeHost = allowLessonParticipantsBeforeHost;
 exports.zoomWebhook = asyncHandler(async (req, res) => {
   const body = req.body || {};
 

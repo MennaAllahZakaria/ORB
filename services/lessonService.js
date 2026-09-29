@@ -15,7 +15,10 @@ const sendEmail = require("../utils/sendEmail");
 const ApiFeatures = require("../utils/apiFeatures");
 const { sendLessonNotifications , sendInterestNotification , sendChooseTeacherNotification , cancelLessonNotification } = require("../utils/lessonNotificaionHelper");
 const {checkTeacherAvailability} = require("../utils/helpers");
-const { createZoomLessonMeeting } = require("./zoomService");
+const {
+  createZoomLessonMeeting,
+  allowLessonParticipantsBeforeHost,
+} = require("./zoomService");
 const { handleRefund } = require("./payment/paymentHandleService");
 
 const { getIO } = require("../config/socket");
@@ -1000,6 +1003,8 @@ exports.createMeeting = asyncHandler(async (req, res, next) => {
       Boolean(lesson.zoomJoinUrl);
 
     if (hasReusableMeeting) {
+      // Normalize meetings created before join_before_host was enabled.
+      await allowLessonParticipantsBeforeHost(lesson.zoomMeetingId);
       return res.status(200).json({
         status: "success",
         data: {
@@ -1007,7 +1012,8 @@ exports.createMeeting = asyncHandler(async (req, res, next) => {
           meetingId: lesson.zoomMeetingId,
           meetingRoomId: lesson.meetingRoomId,
           joinUrl: lesson.zoomJoinUrl,
-          startUrl: req.user.role === "teacher" ? lesson.zoomStartUrl : null,
+          // The teacher is not the host. Both participants use joinUrl.
+          startUrl: null,
           password: lesson.zoomPassword || null,
           tokens: null,
         }
@@ -1023,7 +1029,8 @@ exports.createMeeting = asyncHandler(async (req, res, next) => {
         meetingId: meeting.meetingId,
         meetingRoomId: meeting.meetingRoomId,
         joinUrl: meeting.joinUrl,
-        startUrl: req.user.role === "teacher" ? meeting.startUrl : null,
+        // The teacher is not the host. Both participants use joinUrl.
+        startUrl: null,
         password: meeting.password,
         tokens: null,
       }
