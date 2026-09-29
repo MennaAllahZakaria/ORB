@@ -16,6 +16,7 @@ const {
     googleLogin,
     completeProfile,
     setPassword,
+    deactivateMyAccount,
     requestAccountReactivation
 } = require("../services/authService");
 
@@ -30,6 +31,7 @@ const {
 } = require("../utils/validators/authValidator");
 
 const { protect, allowedTo } = require("../middleware/authMiddleware");
+const { auditOnSuccess } = require("../middleware/auditMiddleware");
 
 const {
     loginLimiter,
@@ -91,6 +93,14 @@ router.patch("/updateProfile", protect,  updateProfile);
 router.post("/google-login", googleLogin);
 router.post("/complete-profile", protect, completeProfile);
 router.put("/set-password", protect, setPassword);
+
+// 📌 Self-deactivation (students and teachers only)
+router.patch(
+    "/deactivate-account",
+    protect,
+    auditOnSuccess({ action: "account.self_deactivated", entityType: "User" }),
+    deactivateMyAccount
+);
 
 // 📌 Reactivation request (public: inactive/banned users cannot login)
 router.post("/reactivation-request", forgotPasswordLimiter, requestAccountReactivation);

@@ -108,6 +108,17 @@ SUPER_ADMIN_EMAIL=
 | `GET` | `/audit-logs` | `superAdmin` فقط | البحث في سجل التدقيق والترقيم. |
 | `POST` / `PUT` / `DELETE` | `/admin` و`/admin/:id` | `superAdmin` فقط | إدارة حسابات الأدمن. |
 
+### تعطيل الحساب بواسطة المستخدم
+
+الطالب أو المدرس المسجل دخولًا يستطيع تعطيل حسابه بدون حذف بياناته:
+
+```http
+PATCH /auth/deactivate-account
+Authorization: Bearer <user-token>
+```
+
+لا يحتاج الطلب Body. بعد النجاح تصبح حالة الحساب `inactive` ويتم مسح `fcmToken`. يجب على الفرونت مسح التوكن محليًا وإظهار مسار طلب إعادة التفعيل عبر `POST /auth/reactivation-request`. حسابات `admin` و`superAdmin` لا يمكنها استخدام هذا المسار.
+
 ### طلب إعادة تفعيل حساب مستخدم
 
 الحساب الذي حالته `inactive` أو `banned` لا يستطيع تسجيل الدخول، لذلك endpoint الطلب عام ولا يحتاج JWT:

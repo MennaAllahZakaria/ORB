@@ -760,6 +760,30 @@ exports.setPassword = asyncHandler(async (req, res, next) => {
   });
 });
 
+// ==================== SELF DEACTIVATION ====================
+// @route   PATCH /auth/deactivate-account
+// @access  Private (student/teacher)
+exports.deactivateMyAccount = asyncHandler(async (req, res, next) => {
+  if (["admin", "superAdmin"].includes(req.user.role)) {
+    return next(new ApiError("Admin accounts cannot be deactivated from the user app", 403));
+  }
+
+  if (req.user.status !== "active") {
+    return next(new ApiError("Your account is already inactive", 400));
+  }
+
+  req.user.status = "inactive";
+  // Do not continue sending push notifications after the user deactivates the account.
+  req.user.fcmToken = null;
+  await req.user.save();
+
+  return res.status(200).json({
+    status: "success",
+    message: "Your account has been deactivated. You can request reactivation later.",
+    data: { status: req.user.status },
+  });
+});
+
 // ==================== ACCOUNT REACTIVATION REQUEST ====================
 // @route   POST /auth/reactivation-request
 // @access  Public (required because inactive/banned users cannot login)
