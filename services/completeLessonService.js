@@ -1604,10 +1604,8 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
       },
       $or: [
         { meetingEndTime: { $ne: null } },
-        {
-          meetingStatus: "finished",
-          sessionVerified: true,
-        },
+        { meetingStatus: "finished" },
+        { finalCompletionStatus: "completed" },
       ],
     };
 
