@@ -1004,7 +1004,35 @@ exports.createMeeting = asyncHandler(async (req, res, next) => {
 
     if (hasReusableMeeting) {
       // Normalize meetings created before join_before_host was enabled.
-      await allowLessonParticipantsBeforeHost(lesson.zoomMeetingId);
+      if (!lesson.zoomParticipantsBeforeHost) {
+        try {
+          await allowLessonParticipantsBeforeHost(lesson.zoomMeetingId);
+          lesson.zoomParticipantsBeforeHost = true;
+          await lesson.save();
+        } catch (error) {
+          // Older apps may not have meeting:update:meeting:admin. Do not block
+          // the second participant: create a fresh meeting with valid settings.
+          if (!/meeting:update:meeting|code:\s*4711/i.test(error.message || "")) {
+            throw error;
+          }
+          console.warn(
+            "[Zoom] Missing meeting update scope; replacing the old meeting"
+          );
+          const replacement = await createZoomLessonMeeting({ lesson });
+          return res.status(200).json({
+            status: "success",
+            data: {
+              provider: replacement.provider,
+              meetingId: replacement.meetingId,
+              meetingRoomId: replacement.meetingRoomId,
+              joinUrl: replacement.joinUrl,
+              startUrl: null,
+              password: replacement.password,
+              tokens: null,
+            },
+          });
+        }
+      }
       return res.status(200).json({
         status: "success",
         data: {

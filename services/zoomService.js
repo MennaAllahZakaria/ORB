@@ -192,6 +192,7 @@ async function createZoomLessonMeeting({ lesson }) {
   lesson.zoomJoinUrl = meeting.join_url || null;
   lesson.zoomStartUrl = meeting.start_url || null;
   lesson.zoomPassword = meeting.password || null;
+  lesson.zoomParticipantsBeforeHost = true;
   // Keep the old field populated with the Zoom meeting number for clients that
   // still display meetingRoomId, while tokens remain null and unused.
   lesson.meetingRoomId = String(meeting.id);

@@ -150,6 +150,12 @@ const lessonSchema = new mongoose.Schema(
       default: null,
     },
 
+    // True when the meeting was created or updated with join-before-host enabled.
+    zoomParticipantsBeforeHost: {
+      type: Boolean,
+      default: false,
+    },
+
     meetingStatus: {
       type: String,
       enum: ["upcoming", "ongoing", "finished", "canceled"],

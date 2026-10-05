@@ -142,7 +142,7 @@ Content-Type: application/json
 ## إعداد Zoom للحصص
 
 1. أنشئي تطبيق **Server-to-Server OAuth** في Zoom Marketplace.
-2. من **Meetings → Create a meeting for a user** اختاري `meeting:write:meeting:admin`. هذا هو الاختيار الصحيح لتطبيق **Server-to-Server OAuth** الذي يستدعي `/users/{userId}/meetings`; لا تختاري `meeting:write:meeting:master` إلا إذا كان الحساب Zoom من نوع Master وكنتِ تنشئين اجتماعات لحسابات فرعية. صلاحية `meeting:write:meeting` العادية تخص تطبيقات المستخدم المُدارة (General/User-managed)، وليست التوكن الحالي من Server-to-Server OAuth. أضيفي أيضًا أي صلاحيات Webhook يقترحها Zoom تلقائيًا.
+2. من **Meetings → Create a meeting for a user** اختاري `meeting:write:meeting:admin`. هذا هو الاختيار الصحيح لتطبيق **Server-to-Server OAuth** الذي يستدعي `/users/{userId}/meetings`; لا تختاري `meeting:write:meeting:master` إلا إذا كان الحساب Zoom من نوع Master وكنتِ تنشئين اجتماعات لحسابات فرعية. صلاحية `meeting:write:meeting` العادية تخص تطبيقات المستخدم المُدارة (General/User-managed)، وليست التوكن الحالي من Server-to-Server OAuth. ولتحديث اجتماعات Zoom القديمة دون إعادة إنشائها، أضيفي أيضًا `meeting:update:meeting:admin`. أضيفي كذلك أي صلاحيات Webhook يقترحها Zoom تلقائيًا.
 3. ضعي `Account ID` و`Client ID` و`Client Secret` في متغيرات Railway باسم `ZOOM_ACCOUNT_ID` و`ZOOM_CLIENT_ID` و`ZOOM_CLIENT_SECRET`.
 4. اجعلي `ZOOM_USER_ID` هو مستخدم Zoom الذي سيستضيف الحصص، أو اتركيه `me` ليستخدم مالك التطبيق.
 5. أنشئي اشتراك Webhook للأحداث التالية على العنوان `https://<orb-domain>/zoom/webhook`:
