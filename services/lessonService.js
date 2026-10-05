@@ -1943,6 +1943,9 @@ exports.getUpcomingLessons = asyncHandler(async (req, res, next) => {
         "student.lastName": 1,
         "student.email": 1,
         "student.imageProfile": 1,
+        "student.studentProfile.grade": 1,
+        "student.studentProfile.education_system": 1,
+        "student.studentProfile.school": 1,
 
         /* =========================
            TEACHER

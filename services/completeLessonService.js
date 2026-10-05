@@ -3319,6 +3319,15 @@ exports.getProblematicPastLessons = asyncHandler(async (req, res, next) => {
 
                   imageProfile:
                     "$student.imageProfile",
+
+                  studentProfile: {
+                    grade:
+                      "$student.studentProfile.grade",
+                    education_system:
+                      "$student.studentProfile.education_system",
+                    school:
+                      "$student.studentProfile.school",
+                  },
                 },
 
 
