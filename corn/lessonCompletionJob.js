@@ -5,6 +5,7 @@ const { addPoints } = require("../services/pointsService");
 const Notification = require("../models/notificationModel");
 const { decryptToken } = require("../utils/fcmToken");
 const admin = require("../fireBase/admin");
+const { getPastMeetingDetails } = require("../services/zoomService");
 
 const LESSON_DURATION_BUFFER = 5 * 60 * 1000; // 5 minutes
 
@@ -443,6 +444,34 @@ exports.runLessonCompletionJob = () => {
 
           if (now <= allowedEndTime) {
             continue;
+          }
+
+          // Zoom webhooks can be delayed or missed. Reconcile with Zoom before
+          // declaring a paid Zoom lesson as never started.
+          if (
+            lesson.meetingProvider === "zoom" &&
+            lesson.zoomMeetingId
+          ) {
+            const pastMeeting = await getPastMeetingDetails(
+              lesson.zoomMeetingId
+            );
+
+            if (pastMeeting?.id) {
+              lesson.meetingStatus = "finished";
+              lesson.sessionVerified = true;
+              lesson.meetingStartTime = pastMeeting.start_time
+                ? new Date(pastMeeting.start_time)
+                : lesson.meetingStartTime || lesson.requestedDate;
+              lesson.meetingEndTime = pastMeeting.end_time
+                ? new Date(pastMeeting.end_time)
+                : new Date(now);
+              lesson.finalCompletionStatus = "completed";
+              lesson.reviewStatus = "waiting_second_party";
+              lesson.disputeFlag = false;
+              lesson.activeParticipants = [];
+              await lesson.save();
+              continue;
+            }
           }
 
           /* ===============================================

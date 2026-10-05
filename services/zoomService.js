@@ -214,7 +214,6 @@ async function createZoomLessonMeeting({ lesson }) {
 
 async function allowLessonParticipantsBeforeHost(meetingId) {
   if (!meetingId) return;
-
   await zoomRequest({
     method: "patch",
     url: `/meetings/${encodeURIComponent(meetingId)}`,
@@ -225,6 +224,15 @@ async function allowLessonParticipantsBeforeHost(meetingId) {
       },
     },
   });
+}
+
+async function getPastMeetingDetails(meetingId) {
+  if (!meetingId) return null;
+  const response = await zoomRequest({
+    method: "get",
+    url: `/past_meetings/${encodeURIComponent(meetingId)}`,
+  });
+  return response.data || null;
 }
 
 function getMeetingId(payload = {}) {
@@ -447,3 +455,4 @@ exports.zoomWebhook = asyncHandler(async (req, res) => {
 
 exports.handleZoomEvent = handleZoomEvent;
 exports.getZoomAccessToken = getZoomAccessToken;
+exports.getPastMeetingDetails = getPastMeetingDetails;
