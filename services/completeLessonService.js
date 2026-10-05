@@ -107,6 +107,28 @@ exports.submitCompletion = asyncHandler(async (req, res, next) => {
      6. LESSON MUST HAVE STARTED
   ===================================================== */
 
+  /*
+    Zoom can deliver meeting.ended without meeting.started (or the start
+    webhook can be delayed). If the meeting was verified as ended, recover the
+    start time from the real end time and lesson duration. Do not do this for
+    lessons marked as missed/problem by the cron job.
+  */
+  const verifiedEndedMeeting =
+    (lesson.meetingStatus === "finished" || lesson.sessionVerified === true) &&
+    (lesson.meetingEndTime || lesson.sessionVerified === true) &&
+    lesson.status !== "problem" &&
+    lesson.finalCompletionStatus !== "incomplete";
+
+  if (!lesson.meetingStartTime && verifiedEndedMeeting) {
+    const endTime = lesson.meetingEndTime || new Date();
+    const durationInMinutes = Number(lesson.durationInMinutes || 60);
+    lesson.meetingStartTime = new Date(
+      new Date(endTime).getTime() - durationInMinutes * 60 * 1000
+    );
+    if (!lesson.meetingEndTime) lesson.meetingEndTime = endTime;
+    await lesson.save();
+  }
+
   if (!lesson.meetingStartTime) {
     return next(
       new ApiError(
