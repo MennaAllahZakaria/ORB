@@ -329,8 +329,18 @@ async function handleZoomEvent(payload = {}) {
     lesson.activeParticipants = [];
   }
 
+  const hasProblemState =
+    lesson.status === "problem" ||
+    lesson.finalCompletionStatus === "incomplete" ||
+    lesson.disputeFlag === true ||
+    ["disputed", "under_admin_review", "resolved_by_admin"].includes(
+      lesson.reviewStatus
+    );
+
   switch (event) {
     case "meeting.started":
+      if (hasProblemState) return;
+
       if (
         lesson.meetingStatus === "finished" &&
         lesson.meetingEndTime &&
@@ -357,7 +367,7 @@ async function handleZoomEvent(payload = {}) {
       break;
 
     case "meeting.participant_joined": {
-      if (lesson.meetingStatus === "finished") return;
+      if (hasProblemState || lesson.meetingStatus === "finished") return;
 
       const participantId = getParticipantId(payload);
       if (participantId && !lesson.activeParticipants.includes(participantId)) {
@@ -372,7 +382,7 @@ async function handleZoomEvent(payload = {}) {
     }
 
     case "meeting.participant_left": {
-      if (lesson.meetingStatus === "finished") return;
+      if (hasProblemState || lesson.meetingStatus === "finished") return;
 
       const participantId = getParticipantId(payload);
       if (participantId) {
@@ -403,14 +413,7 @@ async function handleZoomEvent(payload = {}) {
 
       // A delayed webhook must not erase a problem/dispute that a participant
       // already reported while the meeting was ending.
-      if (
-        lesson.status === "problem" ||
-        lesson.finalCompletionStatus === "incomplete" ||
-        lesson.disputeFlag === true ||
-        ["disputed", "under_admin_review", "resolved_by_admin"].includes(
-          lesson.reviewStatus
-        )
-      ) {
+      if (hasProblemState) {
         break;
       }
 

@@ -120,3 +120,58 @@ test("a delayed meeting.started event does not reopen a finished meeting", async
     Lesson.findOne = originalFindOne;
   }
 });
+
+test("late attendance events do not reopen a lesson already marked problematic", async () => {
+  const originalFindOne = Lesson.findOne;
+  const lesson = {
+    _id: "lesson-3",
+    zoomMeetingId: "555555555",
+    meetingStatus: "finished",
+    status: "problem",
+    finalCompletionStatus: "incomplete",
+    reviewStatus: "under_admin_review",
+    disputeFlag: false,
+    meetingStartTime: new Date("2030-01-15T15:00:00.000Z"),
+    meetingEndTime: new Date("2030-01-15T15:20:00.000Z"),
+    activeParticipants: [],
+    student: { _id: "student-1" },
+    acceptedTeacher: { _id: "teacher-1" },
+    save: async function save() {
+      throw new Error("problem state must not be reopened");
+    },
+  };
+
+  Lesson.findOne = () => ({
+    populate: async () => lesson,
+  });
+
+  try {
+    await handleZoomEvent({
+      event: "meeting.started",
+      event_ts: Date.parse("2030-01-15T15:05:00.000Z"),
+      payload: {
+        object: {
+          id: "555555555",
+          start_time: "2030-01-15T15:05:00.000Z",
+        },
+      },
+    });
+
+    await handleZoomEvent({
+      event: "meeting.participant_joined",
+      event_ts: Date.parse("2030-01-15T15:06:00.000Z"),
+      payload: {
+        object: {
+          id: "555555555",
+          participant: { id: "participant-1" },
+        },
+      },
+    });
+
+    assert.equal(lesson.status, "problem");
+    assert.equal(lesson.meetingStatus, "finished");
+    assert.deepEqual(lesson.activeParticipants, []);
+  } finally {
+    Lesson.findOne = originalFindOne;
+  }
+});
