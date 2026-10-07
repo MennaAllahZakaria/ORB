@@ -6,6 +6,7 @@ const Notification = require("../models/notificationModel");
 const { decryptToken } = require("../utils/fcmToken");
 const admin = require("../fireBase/admin");
 const { getPastMeetingDetails } = require("../services/zoomService");
+const { handleLessonCompletion } = require("../services/payment/paymentHandleService");
 
 const LESSON_DURATION_BUFFER = 5 * 60 * 1000; // 5 minutes
 
@@ -114,6 +115,33 @@ exports.runLessonCompletionJob = () => {
 
     try {
       const now = new Date();
+
+      /* =================================================
+         0. RECOVER COMPLETED LESSONS WITH HELD FUNDS
+      ================================================= */
+
+      // A completion confirmation can succeed even when a previous payment
+      // release attempt failed. Retry these records independently of the
+      // 24-hour auto-release window so teacher revenue is not stranded.
+      const completedHeldLessons = await Lesson.find({
+        paymentStatus: "paid",
+        fundsStatus: "holding",
+        finalCompletionStatus: "completed",
+        reviewStatus: "auto_resolved",
+        disputeFlag: false,
+        sessionVerified: true,
+      }).select("_id").limit(50);
+
+      for (const lesson of completedHeldLessons) {
+        try {
+          const result = await handleLessonCompletion(lesson._id);
+          if (result?.decision === "released") {
+            console.log(`[CRON] Recovered held revenue for lesson ${lesson._id}`);
+          }
+        } catch (err) {
+          console.error(`[CRON] Revenue recovery failed for lesson ${lesson._id}:`, err.message);
+        }
+      }
 
       /* =================================================
          1. HANDLE ONGOING LESSONS

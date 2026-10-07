@@ -3,6 +3,7 @@ const User = require("../models/userModel");
 const Lesson = require("../models/lessonModel");
 const ApiError = require("../utils/apiError");
 const Review = require("../models/reviewModel");
+const Ledger = require("../models/payment/ledgerModel");
 const axios = require("axios");
 
 // ===============================
@@ -205,22 +206,41 @@ exports.getTeacherPayoutHistory = asyncHandler(async (req, res, next) => {
     paymentStatus: { $in: ["paid", "released"] },
   })
     .select(
-      "subject price paymentStatus teacherPayoutId amountPaid fees createdAt updatedAt"
+      "subject price paymentStatus fundsStatus finalCompletionStatus reviewStatus paymentId createdAt updatedAt"
     )
     .sort({ createdAt: -1 });
 
+  const lessonIds = lessons.map((lesson) => lesson._id);
+  const ledgerEntries = await Ledger.find({
+    userId: req.user._id,
+    lessonId: { $in: lessonIds },
+    source: "lesson",
+    type: "credit",
+  }).select("lessonId amount status paymentId createdAt");
+
+  const ledgerByLesson = new Map(
+    ledgerEntries.map((entry) => [entry.lessonId.toString(), entry])
+  );
+  const revenue = lessons.map((lesson) => {
+    const entry = ledgerByLesson.get(lesson._id.toString());
+    return {
+      ...lesson.toObject(),
+      teacherEarning: entry?.amount ?? null,
+      revenueStatus: entry?.status || "missing_ledger",
+      ledgerId: entry?._id || null,
+    };
+  });
+
   res.status(200).json({
     status: "success",
-    results: lessons.length,
-    data: lessons,
+    results: revenue.length,
+    data: revenue,
   });
 });
 
 // ===============================
 // 💰 GET TEACHER BALANCE
 // ===============================
-const Ledger = require("../models/payment/ledgerModel");
-
 exports.getTeacherBalance = asyncHandler(async (req, res, next) => {
   if (req.user.role !== "teacher") {
     return next(new ApiError("Only teachers can view balance", 403));

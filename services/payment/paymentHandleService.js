@@ -1,5 +1,6 @@
 const Payment = require("../../models/payment/paymentModel");
 const Lesson = require("../../models/lessonModel");
+const CompleteLesson = require("../../models/completeLossonModel");
 const Ledger = require("../../models/payment/ledgerModel");
 const Dispute = require("../../models/payment/disputeModel");
 const Payout = require("../../models/payment/payoutModel");
@@ -92,6 +93,9 @@ exports.handlePaymentSuccess = async ({
     // update lesson
     lesson.paymentStatus = "paid";
     lesson.status = "approved";
+    // Keep the payment relation on the lesson so completion/release and
+    // financial history can reliably find the matching ledger entry.
+    lesson.paymentId = payment._id;
     await lesson.save({ session });
 
     const platformFee = Math.round(payment.amount * 0.2);
@@ -317,13 +321,17 @@ exports.handleLessonCompletion = async (lessonId, options = {}) => {
          11. UPDATE LEDGER
       ===================================================== */
 
+      const pendingLessonLedger = {
+        lessonId: lesson._id,
+        status: "pending",
+        source: "lesson",
+      };
+      // Some older paid lessons were created before lesson.paymentId was
+      // persisted. lessonId remains the safe fallback for those records.
+      if (lesson.paymentId) pendingLessonLedger.paymentId = lesson.paymentId;
+
       await Ledger.updateMany(
-        {
-          lessonId: lesson._id,
-          paymentId: lesson.paymentId,
-          status: "pending",
-          source: "lesson",
-        },
+        pendingLessonLedger,
         {
           $set: {
             status: "confirmed",

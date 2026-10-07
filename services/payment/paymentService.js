@@ -49,6 +49,10 @@ exports.createPayment = async (req, res) => {
     customerReference: customerReference,
   });
 
+  // Persist the relation in both directions. Completion/release and teacher
+  // revenue queries need to resolve the lesson's exact payment record.
+  lesson.paymentId = payment._id;
+
   // Creating a checkout session is not a payment. Keep the lesson unpaid
   // until EasyKash confirms a PAID transaction through the webhook/job.
   if (lesson.paymentStatus !== "paid" && lesson.paymentStatus !== "released") {
