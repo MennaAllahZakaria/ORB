@@ -36,4 +36,6 @@ exports.initializeCronJobs = () => {
     await retryPayouts();
   });
 
+  console.log("[CRON] Initialized: negotiation=1m, payments=5m, reminders=5m, autoRelease=10m, completion/recovery=15m, payouts=15m");
+
 };

@@ -198,8 +198,21 @@ exports.handleLessonCompletion = async (lessonId, options = {}) => {
         return;
       }
 
-      if (lesson.paymentStatus !== "paid") {
+      const verifiedPayment = await Payment.findOne({
+        lessonId: lesson._id,
+        status: "paid",
+        isProcessed: true,
+      }).session(session);
+
+      if (!verifiedPayment || lesson.paymentStatus !== "paid") {
         throw new Error("Lesson payment is not completed");
+      }
+
+      // Repair old lessons whose paymentId was not persisted or whose test
+      // ledger was linked to a stale payment id.
+      if (!lesson.paymentId || lesson.paymentId.toString() !== verifiedPayment._id.toString()) {
+        lesson.paymentId = verifiedPayment._id;
+        await lesson.save({ session });
       }
 
 
@@ -323,12 +336,14 @@ exports.handleLessonCompletion = async (lessonId, options = {}) => {
 
       const pendingLessonLedger = {
         lessonId: lesson._id,
+        userId: lesson.acceptedTeacher,
         status: "pending",
         source: "lesson",
+        type: "credit",
       };
-      // Some older paid lessons were created before lesson.paymentId was
-      // persisted. lessonId remains the safe fallback for those records.
-      if (lesson.paymentId) pendingLessonLedger.paymentId = lesson.paymentId;
+      // lessonId + teacher is the authoritative relation for a teacher
+      // earning. Do not strand old ledger rows because paymentId was missing
+      // or was written incorrectly by an earlier test/checkout flow.
 
       await Ledger.updateMany(
         pendingLessonLedger,
