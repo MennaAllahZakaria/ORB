@@ -303,11 +303,13 @@ async function handleZoomEvent(payload = {}) {
   }
 
   const eventObject = payload.object || {};
-  const eventDate = payload.event_ts
-    ? new Date(Number(payload.event_ts))
-    : eventObject.start_time || eventObject.end_time
-      ? new Date(eventObject.start_time || eventObject.end_time)
-      : new Date();
+  const eventDate = eventObject.end_time
+    ? new Date(eventObject.end_time)
+    : eventObject.start_time
+      ? new Date(eventObject.start_time)
+      : payload.event_ts
+        ? new Date(Number(payload.event_ts))
+        : new Date();
 
   if (!Array.isArray(lesson.activeParticipants)) {
     lesson.activeParticipants = [];
