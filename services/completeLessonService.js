@@ -1920,6 +1920,55 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
 
 
       /* ================================================
+         CURRENT USER SUBMISSION
+         Keep the completion status user-specific. The
+         lesson-level statuses below remain available for
+         backward compatibility.
+      ================================================ */
+
+      {
+        $lookup: {
+          from: CompleteLesson.collection.name,
+          let: { lessonId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$lesson", "$$lessonId"] },
+                    { $eq: ["$submittedBy", user._id] },
+                  ],
+                },
+              },
+            },
+            { $sort: { createdAt: -1 } },
+            { $limit: 1 },
+            {
+              $project: {
+                _id: 1,
+                completionStatus: 1,
+                reviewStatus: 1,
+                reasonForIncomplete: 1,
+                description: 1,
+                proofImage: 1,
+                createdAt: 1,
+              },
+            },
+          ],
+          as: "currentUserSubmission",
+        },
+      },
+
+      {
+        $addFields: {
+          currentUserSubmission: {
+            $arrayElemAt: ["$currentUserSubmission", 0],
+          },
+        },
+      },
+
+
+      /* ================================================
          LOOKUP REVIEWS
       ================================================ */
 
@@ -2186,6 +2235,15 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
                   1,
 
                 reviewStatus:
+                  1,
+
+                currentUserStatus:
+                  "$currentUserSubmission.completionStatus",
+
+                currentUserReviewStatus:
+                  "$currentUserSubmission.reviewStatus",
+
+                currentUserSubmission:
                   1,
 
                 paymentStatus:

@@ -241,6 +241,9 @@ exports.getTeacherPayoutHistory = asyncHandler(async (req, res, next) => {
 // ===============================
 // 💰 GET TEACHER BALANCE
 // ===============================
+const PLATFORM_FEE_RATE = 0.2;
+const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
+
 exports.getTeacherBalance = asyncHandler(async (req, res, next) => {
   if (req.user.role !== "teacher") {
     return next(new ApiError("Only teachers can view balance", 403));
@@ -248,38 +251,84 @@ exports.getTeacherBalance = asyncHandler(async (req, res, next) => {
 
   const teacherId = req.user._id;
 
-  const balanceAgg = await Ledger.aggregate([
-    {
-      $match: {
-        userId: teacherId,
-        $or: [
-          { status: "confirmed" },
-          { status: "pending", source: "withdraw", type: "debit" },
-        ],
+  const [balanceAgg, lessons] = await Promise.all([
+    Ledger.aggregate([
+      {
+        $match: {
+          userId: teacherId,
+          $or: [
+            { status: "confirmed" },
+            { status: "pending", source: "withdraw", type: "debit" },
+          ],
+        },
       },
-    },
-    {
-      $group: {
-        _id: null,
-        balance: {
-          $sum: {
-            $cond: [
-              { $eq: ["$type", "credit"] },
-              "$amount",
-              { $multiply: ["$amount", -1] }
-            ]
+      {
+        $group: {
+          _id: null,
+          balance: {
+            $sum: {
+              $cond: [
+                { $eq: ["$type", "credit"] },
+                "$amount",
+                { $multiply: ["$amount", -1] }
+              ]
+            }
           }
         }
       }
-    }
+    ]),
+    Lesson.find({
+      acceptedTeacher: teacherId,
+      paymentStatus: { $in: ["paid", "released"] },
+      finalCompletionStatus: "completed",
+      status: { $nin: ["canceled", "expired", "problem"] },
+    })
+      .select(
+        "title subject price requestedDate durationInMinutes paymentStatus fundsStatus createdAt"
+      )
+      .sort({ createdAt: -1 })
+      .lean(),
   ]);
 
-  const balance = balanceAgg[0]?.balance || 0;
+  const balance = roundMoney(balanceAgg[0]?.balance || 0);
+  const platformFeePercentage = PLATFORM_FEE_RATE * 100;
+
+  const lessonDetails = lessons.map((lesson) => {
+    const grossAmount = roundMoney(lesson.price);
+    const platformFee = roundMoney(grossAmount * PLATFORM_FEE_RATE);
+
+    return {
+      lessonId: lesson._id,
+      title: lesson.title,
+      subject: lesson.subject,
+      date: lesson.requestedDate || lesson.createdAt,
+      durationInMinutes: lesson.durationInMinutes,
+      paymentStatus: lesson.paymentStatus,
+      fundsStatus: lesson.fundsStatus,
+      grossAmount,
+      platformFee,
+      teacherAmount: roundMoney(grossAmount - platformFee),
+    };
+  });
+
+  const totals = lessonDetails.reduce(
+    (acc, lesson) => ({
+      grossAmount: roundMoney(acc.grossAmount + lesson.grossAmount),
+      platformFee: roundMoney(acc.platformFee + lesson.platformFee),
+      teacherAmount: roundMoney(acc.teacherAmount + lesson.teacherAmount),
+    }),
+    { grossAmount: 0, platformFee: 0, teacherAmount: 0 }
+  );
 
   res.status(200).json({
     status: "success",
     data: {
-      balance
+      balance,
+      currency: "EGP",
+      lessonsCount: lessonDetails.length,
+      platformFeePercentage,
+      totals,
+      lessons: lessonDetails,
     }
   });
 });
