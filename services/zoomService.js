@@ -236,12 +236,20 @@ async function getPastMeetingDetails(meetingId) {
 }
 
 function getMeetingId(payload = {}) {
-  const object = payload.object || payload.meeting || {};
+  const object =
+    payload.payload?.object ||
+    payload.object ||
+    payload.meeting ||
+    {};
   return String(object.id || object.meeting_id || payload.meeting_id || "").trim();
 }
 
 function getParticipantId(payload = {}) {
-  const participant = payload.object?.participant || payload.participant || {};
+  const participant =
+    payload.payload?.object?.participant ||
+    payload.object?.participant ||
+    payload.participant ||
+    {};
   return String(
     participant.user_id ||
       participant.id ||
@@ -302,14 +310,20 @@ async function handleZoomEvent(payload = {}) {
     return;
   }
 
-  const eventObject = payload.object || {};
-  const eventDate = eventObject.end_time
+  const eventObject =
+    payload.payload?.object ||
+    payload.object ||
+    {};
+  const parsedEventDate = eventObject.end_time
     ? new Date(eventObject.end_time)
     : eventObject.start_time
       ? new Date(eventObject.start_time)
       : payload.event_ts
         ? new Date(Number(payload.event_ts))
         : new Date();
+  const eventDate = Number.isNaN(parsedEventDate.getTime())
+    ? new Date()
+    : parsedEventDate;
 
   if (!Array.isArray(lesson.activeParticipants)) {
     lesson.activeParticipants = [];
@@ -317,6 +331,14 @@ async function handleZoomEvent(payload = {}) {
 
   switch (event) {
     case "meeting.started":
+      if (
+        lesson.meetingStatus === "finished" &&
+        lesson.meetingEndTime &&
+        eventDate <= new Date(lesson.meetingEndTime)
+      ) {
+        return;
+      }
+
       lesson.meetingProvider = "zoom";
       lesson.meetingStatus = "ongoing";
       lesson.meetingStartTime = lesson.meetingStartTime || eventDate;
@@ -335,19 +357,23 @@ async function handleZoomEvent(payload = {}) {
       break;
 
     case "meeting.participant_joined": {
+      if (lesson.meetingStatus === "finished") return;
+
       const participantId = getParticipantId(payload);
       if (participantId && !lesson.activeParticipants.includes(participantId)) {
         lesson.activeParticipants.push(participantId);
       }
       lesson.lastActiveAt = new Date();
       if (!lesson.meetingStartTime) {
-        lesson.meetingStartTime = new Date();
+        lesson.meetingStartTime = eventDate;
         lesson.meetingStatus = "ongoing";
       }
       break;
     }
 
     case "meeting.participant_left": {
+      if (lesson.meetingStatus === "finished") return;
+
       const participantId = getParticipantId(payload);
       if (participantId) {
         lesson.activeParticipants = lesson.activeParticipants.filter(
@@ -359,6 +385,13 @@ async function handleZoomEvent(payload = {}) {
     }
 
     case "meeting.ended":
+      if (
+        lesson.meetingEndTime &&
+        eventDate < new Date(lesson.meetingEndTime)
+      ) {
+        return;
+      }
+
       lesson.meetingStatus = "finished";
       if (!lesson.meetingStartTime) {
         lesson.meetingStartTime = eventObject.start_time
@@ -413,6 +446,14 @@ function validateWebhookRequest(req) {
   const signature = req.headers["x-zm-signature"];
   if (!timestamp || !signature) return false;
 
+  const timestampSeconds = Number(timestamp);
+  if (
+    !Number.isFinite(timestampSeconds) ||
+    Math.abs(Date.now() / 1000 - timestampSeconds) > 5 * 60
+  ) {
+    return false;
+  }
+
   const rawBody = req.rawBody?.toString("utf8") || JSON.stringify(req.body);
   const message = `v0:${timestamp}:${rawBody}`;
   const expected = `v0=${crypto
@@ -430,6 +471,7 @@ function validateWebhookRequest(req) {
 
 exports.createZoomLessonMeeting = createZoomLessonMeeting;
 exports.allowLessonParticipantsBeforeHost = allowLessonParticipantsBeforeHost;
+exports.handleZoomEvent = handleZoomEvent;
 exports.zoomWebhook = asyncHandler(async (req, res) => {
   const body = req.body || {};
 
