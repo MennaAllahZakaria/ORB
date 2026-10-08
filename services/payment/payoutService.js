@@ -198,7 +198,7 @@ exports.getAllPayouts = asyncHandler(async (req, res) => {
 
   const [payouts, total] = await Promise.all([
     Payout.find(filter)
-      .populate("teacherId", "firstName lastName email")
+      .populate("teacherId", "firstName lastName email teacherProfile.paymentInfo")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit),
