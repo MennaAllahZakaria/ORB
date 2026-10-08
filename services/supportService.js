@@ -1,8 +1,10 @@
 const asyncHandler = require("express-async-handler");
 const HandlerFactory = require("./handlerFactory");
 const Support = require("../models/supportModel");
+const User = require("../models/userModel");
 const ApiError = require("../utils/apiError");
 const { uploadSingleImage } = require("../middleware/uploadImageMiddleware");
+const sendEmail = require("../utils/sendEmail");
 
 
 exports.uploadSupportImage = uploadSingleImage("image");
@@ -37,12 +39,66 @@ exports.createSupportRequest = asyncHandler(async (req, res, next) => {
 // ===============================
 // 🎯 Get all support requests
 // ===============================
-exports.getAllSupportRequests = HandlerFactory.getAll(Support);
+exports.getAllSupportRequests = asyncHandler(async (req, res) => {
+  const supportRequests = await Support.find()
+    .populate("user", "firstName lastName email role")
+    .populate("adminRepliedBy", "firstName lastName email")
+    .sort({ createdAt: -1 });
+
+  res.status(200).json({
+    status: "success",
+    results: supportRequests.length,
+    data: supportRequests,
+  });
+});
 
 // ===============================
 // 🎯 Get specific support request
 // ===============================
 exports.getSupportRequest = HandlerFactory.getOne(Support);
+
+// ===============================
+// Reply to a support request and notify the user by email
+// ===============================
+exports.replyToSupportRequest = asyncHandler(async (req, res, next) => {
+  const reply = typeof req.body.reply === "string" ? req.body.reply.trim() : "";
+  if (!reply) {
+    return next(new ApiError("reply is required", 400));
+  }
+
+  const supportRequest = await Support.findById(req.params.id);
+  if (!supportRequest) {
+    return next(new ApiError("Support request not found", 404));
+  }
+
+  const user = await User.findById(supportRequest.user).select("firstName lastName email");
+  if (!user?.email) {
+    return next(new ApiError("Support requester email is not available", 400));
+  }
+
+  supportRequest.adminReply = reply;
+  supportRequest.adminRepliedAt = new Date();
+  supportRequest.adminRepliedBy = req.user._id;
+  supportRequest.status = "in progress";
+  await supportRequest.save();
+
+  try {
+    await sendEmail({
+      Email: user.email,
+      subject: `ORB Support reply: ${supportRequest.problemType}`,
+      message: `Hi ${user.firstName} ${user.lastName},\n\nOur support team replied to your request:\n\n${reply}\n\nOriginal request: ${supportRequest.message}\n\nYou can reply through the ORB support section if you need more help.\n\nORB Support`,
+    });
+  } catch (emailError) {
+    console.error("Error sending support reply email:", emailError.message);
+    return next(new ApiError("The reply was saved, but the email could not be sent", 502));
+  }
+
+  res.status(200).json({
+    status: "success",
+    message: "Support reply saved and emailed successfully",
+    data: supportRequest,
+  });
+});
 
 // ===============================
 // 🎯 Update support request
@@ -71,7 +127,9 @@ exports.updateSupportRequest = asyncHandler(async (req, res, next) => {
 // 🎯 Get support requests for logged-in user
 // ===============================
 exports.getMySupportRequests = asyncHandler(async (req, res, next) => {
-  const supportRequests = await Support.find({ user: req.user._id });
+  const supportRequests = await Support.find({ user: req.user._id })
+    .populate("adminRepliedBy", "firstName lastName email")
+    .sort({ createdAt: -1 });
     res.status(200).json({
     status: "success",
     results: supportRequests.length,
@@ -114,4 +172,3 @@ exports.reopenSupportRequest = asyncHandler(async (req, res, next) => {
     data: supportRequest,
   });
 });
-

@@ -26,6 +26,16 @@ const supportSchema = new mongoose.Schema(
     image: {
       type: String,
     },
+    adminReply: {
+      type: String,
+      trim: true,
+      maxlength: 2000,
+    },
+    adminRepliedAt: Date,
+    adminRepliedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
   },
   { timestamps: true }
 );

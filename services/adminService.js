@@ -581,13 +581,35 @@ exports.resolveAccountReactivationRequest = asyncHandler(async (req, res, next) 
 
     await session.commitTransaction();
 
+    try {
+      const approved = decision === "approved";
+      await sendEmail({
+        Email: user.email,
+        subject: approved
+          ? "Your ORB account has been reactivated"
+          : "Update on your ORB reactivation request",
+        message: `Hi ${user.firstName} ${user.lastName},\n\n${
+          approved
+            ? "Your account has been reactivated successfully. You can log in and continue using ORB."
+            : "Your account reactivation request was not approved at this time."
+        }\n\nAdmin note: ${request.adminNote || "No additional note."}\n\nORB Support`,
+      });
+    } catch (emailError) {
+      console.error("Error sending reactivation decision email:", emailError.message);
+    }
+
     await writeAuditLog({
       req,
       action: `account_reactivation.${decision}`,
       entityType: "AccountReactivationRequest",
       entityId: request._id,
       before,
-      after: { requestStatus: request.status, userStatus: user.status, adminNote: request.adminNote },
+      after: {
+        requestStatus: request.status,
+        userStatus: user.status,
+        adminNote: request.adminNote,
+        emailDeliveryAttempted: true,
+      },
     });
 
     return res.status(200).json({

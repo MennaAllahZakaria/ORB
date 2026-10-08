@@ -4,6 +4,7 @@ const {
     createSupportRequest,
     getAllSupportRequests,
     getSupportRequest,
+    replyToSupportRequest,
     updateSupportRequest,
     getMySupportRequests,
     closeSupportRequest,
@@ -46,6 +47,14 @@ router.get(
     protect,
     allowedTo( "admin"),
     getSupportRequest
+);
+// ================= ADMIN - REPLY TO SUPPORT REQUEST =================
+router.put(
+    "/:id/reply",
+    protect,
+    allowedTo("admin"),
+    auditOnSuccess({ action: "support.replied", entityType: "SupportTicket" }),
+    replyToSupportRequest
 );
 // ================= USER - UPDATE SUPPORT REQUEST =================
 router.put(

@@ -27,7 +27,7 @@ exports.getDashboardSummary = asyncHandler(async (req, res) => {
     AccountReactivationRequest.countDocuments({ status: "pending" }),
     User.find({ role: "teacher", "teacherProfile.verificationStatus": "pending" }).select("firstName lastName email teacherProfile.verificationStatus createdAt").sort({ createdAt: -1 }).limit(5),
     Dispute.find({ status: { $in: ["open", "under_review"] } }).select("lessonId reason status createdAt").sort({ createdAt: -1 }).limit(5),
-    Payout.find({ status: { $ne: "completed" } }).select("teacherId amount method status createdAt").sort({ createdAt: -1 }).limit(5),
+    Payout.find({ status: { $ne: "completed" } }).select("teacherId amount method status createdAt").populate("teacherId", "firstName lastName email").sort({ createdAt: -1 }).limit(5),
   ]);
 
   res.status(200).json({
