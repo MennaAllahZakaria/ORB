@@ -2371,7 +2371,49 @@ exports.getPastCompletedLessons = asyncHandler(async (req, res, next) => {
 
 
     /* =====================================================
-       13. RESPONSE
+       13. ATTACH THE SAME COMPLETION STATE FOR BOTH ROLES
+    ===================================================== */
+
+    const lessonIds = data.map((lesson) => lesson._id);
+    const submissions = await CompleteLesson.find({ lesson: { $in: lessonIds } })
+      .select("lesson submittedBy role completionStatus reviewStatus adminReview createdAt updatedAt")
+      .sort({ createdAt: 1 })
+      .lean();
+
+    const submissionsByLesson = new Map();
+    for (const submission of submissions) {
+      const key = submission.lesson.toString();
+      const current = submissionsByLesson.get(key) || {};
+      current[submission.role] = submission;
+      submissionsByLesson.set(key, current);
+    }
+
+    const lessonsWithCompletion = data.map((lesson) => {
+      const lessonSubmissions = submissionsByLesson.get(lesson._id.toString()) || {};
+      const studentSubmission = lessonSubmissions.student || null;
+      const teacherSubmission = lessonSubmissions.teacher || null;
+      const currentUserSubmission = user.role === "student" ? studentSubmission : teacherSubmission;
+
+      return {
+        ...lesson,
+        completion: {
+          student: studentSubmission,
+          teacher: teacherSubmission,
+          currentUser: currentUserSubmission,
+          studentSubmitted: Boolean(studentSubmission),
+          teacherSubmitted: Boolean(teacherSubmission),
+          bothSubmitted: Boolean(studentSubmission && teacherSubmission),
+        },
+        hasSubmitted: Boolean(currentUserSubmission),
+        myCompletionStatus: currentUserSubmission?.completionStatus || null,
+        myReviewStatus: currentUserSubmission?.reviewStatus || null,
+      };
+    });
+
+    data.splice(0, data.length, ...lessonsWithCompletion);
+
+    /* =====================================================
+       14. RESPONSE
     ===================================================== */
 
     return res.status(200).json({
